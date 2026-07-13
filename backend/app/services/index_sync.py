@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 
 import polars as pl
 
+from app.data_providers.normalizer import _safe_from_pandas
+
 from app.indicators.pipeline import compute_enriched
 from app.services import kline_sync, preferences
 from app.tickflow.capabilities import Cap, CapabilitySet
@@ -37,7 +39,7 @@ def _quotes_to_index_instruments(resp) -> pl.DataFrame:
     if isinstance(resp, pl.DataFrame):
         df = resp
     elif hasattr(resp, "columns"):
-        df = pl.from_pandas(resp.reset_index() if hasattr(resp, "reset_index") else resp)
+        df = _safe_from_pandas(resp.reset_index() if hasattr(resp, "reset_index") else resp)
     else:
         rows: list[dict] = []
         for q in resp or []:

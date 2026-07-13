@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 
 import polars as pl
 
+from app.data_providers.normalizer import _safe_from_pandas
 from app.indicators.pipeline import filter_halt_days
 from app.services import preferences
 from app.tickflow.capabilities import Cap, CapabilitySet
@@ -49,7 +50,7 @@ def _normalize_daily(df_in, default_symbol: str | None = None) -> pl.DataFrame:
         return pl.DataFrame()
 
     if not isinstance(df_in, pl.DataFrame):
-        df = pl.from_pandas(df_in.reset_index() if hasattr(df_in, "reset_index") else df_in)
+        df = _safe_from_pandas(df_in.reset_index() if hasattr(df_in, "reset_index") else df_in)
     else:
         df = df_in
 
@@ -290,7 +291,7 @@ def _normalize_adj_factor(raw) -> pl.DataFrame:
     elif isinstance(raw, pl.DataFrame):
         df = raw
     else:
-        df = pl.from_pandas(raw.reset_index() if hasattr(raw, "reset_index") else raw)
+        df = _safe_from_pandas(raw.reset_index() if hasattr(raw, "reset_index") else raw)
     if df.is_empty():
         return df
     # rename: timestamp/date → trade_date, adj_factor → ex_factor
@@ -448,7 +449,7 @@ def _normalize_minute(df_in, default_symbol: str | None = None) -> pl.DataFrame:
         return pl.DataFrame()
 
     if not isinstance(df_in, pl.DataFrame):
-        df = pl.from_pandas(df_in.reset_index() if hasattr(df_in, "reset_index") else df_in)
+        df = _safe_from_pandas(df_in.reset_index() if hasattr(df_in, "reset_index") else df_in)
     else:
         df = df_in
 

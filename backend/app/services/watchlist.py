@@ -11,6 +11,7 @@ from pathlib import Path
 import polars as pl
 
 from app.config import settings
+from app.data_providers.normalizer import _safe_from_pandas
 from app.tickflow.capabilities import Cap, CapabilitySet
 from app.tickflow.client import get_client
 from app.tickflow.rate_limits import chunked, resolve_limit
@@ -124,7 +125,7 @@ def fetch_quotes(symbols: list[str], capset: CapabilitySet, timeout_s: float = 8
             raw = future.result(timeout=timeout_s)
             if raw is None or len(raw) == 0:
                 continue
-            df = pl.from_pandas(raw)
+            df = _safe_from_pandas(raw)
             rename_map = {
                 "last_price": "price",
                 "ext.change_pct": "pct",

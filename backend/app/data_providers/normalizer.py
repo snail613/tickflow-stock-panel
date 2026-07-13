@@ -10,6 +10,67 @@ ADJ_FACTOR_COLS = ["symbol", "trade_date", "ex_factor"]
 INSTRUMENT_COLS = ["symbol", "name", "code", "exchange", "asset_type", "source"]
 
 
+def _safe_from_pandas(df):
+    """Convert a pandas-like DataFrame to Polars without requiring pyarrow.
+
+    Handles NumPy 2.x DTypes (Int64DType, Float64DType) and pandas extension
+    types (StringDtype, etc.) by converting them to traditional numpy-backed
+    types first. This avoids the pyarrow dependency which can cause segfaults
+    on macOS (jemalloc conflict).
+    """
+    import numpy as np
+    import pandas as pd
+
+    if not isinstance(df, pd.DataFrame):
+        return pl.from_pandas(df)
+
+    conversions: dict[str, object] = {}
+    for col_name in df.columns:
+        dtype = df[col_name].dtype
+        dtype_mod = type(dtype).__module__
+
+        # NumPy 2.x DTypes (numpy.dtypes.Int64DType / Float64DType etc.)
+        if dtype_mod.startswith("numpy.dtypes"):
+            if isinstance(dtype, np.dtypes.Int64DType):
+                conversions[col_name] = df[col_name].astype("int64")
+            elif isinstance(dtype, np.dtypes.Float64DType):
+                conversions[col_name] = df[col_name].astype("float64")
+            elif isinstance(dtype, np.dtypes.Int32DType):
+                conversions[col_name] = df[col_name].astype("int32")
+            elif isinstance(dtype, np.dtypes.Float32DType):
+                conversions[col_name] = df[col_name].astype("float32")
+            else:
+                # Other numpy 2.x DTypes: try conversion via numpy_dtype if available
+                try:
+                    conversions[col_name] = df[col_name].astype(dtype)
+                except Exception:  # noqa: BLE001
+                    pass
+        # Pandas extension types (StringDtype, ArrowDtype, etc.)
+        elif isinstance(dtype, pd.api.extensions.ExtensionDtype):
+            if isinstance(dtype, pd.StringDtype):
+                conversions[col_name] = df[col_name].astype("object")
+            elif isinstance(dtype, pd.BooleanDtype):
+                conversions[col_name] = df[col_name].astype("object")
+            elif isinstance(dtype, (pd.Int8Dtype, pd.Int16Dtype, pd.Int32Dtype, pd.Int64Dtype,
+                                    pd.UInt8Dtype, pd.UInt16Dtype, pd.UInt32Dtype, pd.UInt64Dtype)):
+                conversions[col_name] = df[col_name].astype("float64")
+            elif isinstance(dtype, (pd.Float32Dtype, pd.Float64Dtype)):
+                conversions[col_name] = df[col_name].astype("float64")
+            else:
+                # Fallback for other extension types
+                try:
+                    conversions[col_name] = df[col_name].astype("object")
+                except Exception:  # noqa: BLE001
+                    pass
+
+    if conversions:
+        df = df.copy()
+        for col_name, converted in conversions.items():
+            df[col_name] = converted
+
+    return pl.from_pandas(df)
+
+
 def to_polars(data) -> pl.DataFrame:
     if data is None:
         return pl.DataFrame()
@@ -24,7 +85,7 @@ def to_polars(data) -> pl.DataFrame:
                 rows.append(row)
         return pl.DataFrame(rows) if rows else pl.DataFrame()
     if hasattr(data, "reset_index"):
-        return pl.from_pandas(data.reset_index())
+        return _safe_from_pandas(data.reset_index())
     try:
         return pl.DataFrame(data)
     except Exception:  # noqa: BLE001
