@@ -23,7 +23,7 @@ META = {
         {"id": "rally_gain_min", "label": "主升浪最低涨幅(%)", "type": "float",
          "default": 50.0, "min": 20.0, "max": 200.0, "step": 5.0},
         {"id": "pullback_range_min", "label": "距前顶下限(%)", "type": "float",
-         "default": -3.0, "min": -15.0, "max": 0.0, "step": 1.0},
+         "default": -3.0, "min": -3.0, "max": 0.0, "step": 1.0},
         {"id": "pullback_range_max", "label": "距前顶上限(%)", "type": "float",
          "default": 5.0, "min": 0.0, "max": 20.0, "step": 1.0},
         {"id": "use_lookback", "label": "启用涨停回溯", "type": "bool",
