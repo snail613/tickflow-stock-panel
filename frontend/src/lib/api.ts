@@ -367,6 +367,8 @@ export interface StrategyParamDef {
   max?: number
   step?: number
   options?: string[]
+  /** 依赖的父参数 id；当父参数为 false/falsy 时该参数禁用 */
+  depends_on?: string
 }
 
 export interface StrategyDetail {

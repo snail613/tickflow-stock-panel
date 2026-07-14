@@ -29,7 +29,8 @@ META = {
         {"id": "use_lookback", "label": "启用涨停回溯", "type": "bool",
          "default": False},
         {"id": "lookback_days", "label": "涨停回溯天数", "type": "int",
-         "default": 50, "min": 20, "max": 100, "step": 10},
+         "default": 50, "min": 20, "max": 100, "step": 10,
+         "depends_on": "use_lookback"},
     ],
     "params_defaults": {
         "analyze_lookback_days": 250,

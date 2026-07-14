@@ -113,15 +113,19 @@ function RangeField({ label, minVal, maxVal, onMinChange, onMaxChange, unit, ste
 const ALL_BOARDS = ['沪主板', '深主板', '创业板', '科创板', '北交所']
 
 // 策略参数字段
-function ParamField({ def, value, onChange }: {
+function ParamField({ def, value, allParams, onChange }: {
   def: StrategyParamDef
   value: any
+  allParams: Record<string, any>
   onChange: (v: any) => void
 }) {
+  const disabled = !!(def.depends_on && !allParams[def.depends_on])
+  const disabledCls = disabled ? 'opacity-40 pointer-events-none' : ''
+
   if (def.type === 'bool') {
     const checked = value === true || value === 'true' || value === 'True'
     return (
-      <div className="flex items-center gap-2">
+      <div className={`flex items-center gap-2 ${disabledCls}`}>
         <span className="text-[11px] text-secondary w-16 shrink-0 text-right">{def.label}</span>
         <button
           type="button"
@@ -140,12 +144,13 @@ function ParamField({ def, value, onChange }: {
   }
   if (def.type === 'select' && def.options) {
     return (
-      <div className="flex items-center gap-2">
+      <div className={`flex items-center gap-2 ${disabledCls}`}>
         <span className="text-[11px] text-secondary w-16 shrink-0 text-right">{def.label}</span>
         <select
           value={value ?? def.default}
           onChange={e => onChange(e.target.value)}
-          className="w-24 px-1.5 py-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground focus:outline-none focus:border-accent/50"
+          disabled={disabled}
+          className="w-24 px-1.5 py-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground focus:outline-none focus:border-accent/50 disabled:bg-subtle disabled:text-muted"
         >
           {def.options.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
@@ -154,7 +159,7 @@ function ParamField({ def, value, onChange }: {
   }
 
   return (
-    <div className="flex items-center gap-2">
+    <div className={`flex items-center gap-2 ${disabledCls}`}>
       <span className="text-[11px] text-secondary w-16 shrink-0 text-right">{def.label}</span>
       <input
         type="number"
@@ -163,7 +168,8 @@ function ParamField({ def, value, onChange }: {
         step={def.step ?? 0.1}
         min={def.min}
         max={def.max}
-        className="w-20 px-1.5 py-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50"
+        disabled={disabled}
+        className="w-20 px-1.5 py-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50 disabled:bg-subtle disabled:text-muted"
       />
       {def.min != null && def.max != null && (
         <span className="text-[10px] text-muted">{def.min}~{def.max}</span>
@@ -437,7 +443,7 @@ export function StrategySettingsDialog({ strategyId, onClose, onSaved, onAiModif
                     {detail.params.length > 0 ? (
                       <Section icon={Settings2} title="策略参数" accent="text-muted">
                         <div className="space-y-1.5">
-                          {detail.params.map(p => <ParamField key={p.id} def={p} value={params[p.id]} onChange={v => setParams({ ...params, [p.id]: v })} />)}
+                          {detail.params.map(p => <ParamField key={p.id} def={p} value={params[p.id]} allParams={params} onChange={v => setParams({ ...params, [p.id]: v })} />)}
                         </div>
                       </Section>
                     ) : (
