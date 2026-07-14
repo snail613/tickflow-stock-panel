@@ -301,11 +301,8 @@ class StrategyEngine:
             if df.is_empty():
                 return StrategyResult(as_of=as_of, strategy_id=strategy_id)
 
-            # filter_history 策略跳过 basic_filter:
-            # basic_filter 按单日条件逐行过滤，施加到数百天历史数据会导致时间序列断档，
-            # 破坏形态识别（峰值检测、连续 K 线条件等），反而减少有效结果。
-            # 策略自身的 META.basic_filter 仍保留在 UI 中供用户调参参考。
-
+            # 先执行策略的历史筛选（形态识别等依赖连续 K 线），
+            # 然后只保留最新日期的结果行，基础过滤在下方的 Stage 1 统一施加。
             df = s.filter_history_fn(df, params)
             if df.is_empty():
                 return StrategyResult(as_of=as_of, strategy_id=strategy_id)
@@ -319,9 +316,9 @@ class StrategyEngine:
                 return StrategyResult(as_of=as_of, strategy_id=strategy_id)
 
         # Stage 1: 基础过滤（enabled 默认开启; 显式 enabled=false 才跳过）
-        # filter_history 策略跳过基础过滤：历史数据上过滤会破坏时间序列连续性；
-        # filter_history 输出的是自定义结果列，也不包含 close/amount 等过滤字段。
-        if not s.filter_history_fn and bf and bf.get("enabled", True):
+        # filter_history 策略此时已通过 date == as_of 过滤到单日数据，
+        # basic_filter 作为二次过滤作用于策略筛选后的当日候选股，不会破坏时间序列。
+        if bf and bf.get("enabled", True):
             df = self._apply_basic_filter(df, bf)
 
         # Pool 过滤

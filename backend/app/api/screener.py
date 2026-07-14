@@ -197,17 +197,15 @@ def _cache_payload_with_ext(cached: dict, ext_values: dict[str, dict[str, Any]])
 
 
 def _update_cache_strategy(data_dir, as_of: str, strategy_id: str, safe_data: dict) -> None:
-    """单跑后更新缓存中该策略的结果，保持缓存与最新计算一致。"""
+    """单跑后更新缓存中该策略的结果，保持缓存与最新计算一致。
+
+    手动单策略运行时，today_ever_rows 用当前结果替换而不是与旧缓存取并集，
+    避免用户调严参数后仍看到旧参数下命中的灰色失效行。
+    """
     from app.services import strategy_cache
     cached = strategy_cache.read_cache(data_dir)
     if cached and cached.get("as_of") == as_of:
-        results = cached.get("results", {})
-        results[strategy_id] = {
-            "total": safe_data.get("total", 0),
-            "as_of": as_of,
-            "rows": safe_data.get("rows", []),
-        }
-        strategy_cache.write_cache(data_dir, as_of, results)
+        strategy_cache.upsert_strategy_result(data_dir, as_of, strategy_id, safe_data)
 
 
 @router.get("/strategies")
@@ -282,6 +280,10 @@ def run_preset(req: PresetRequest, request: Request):
     dl = overrides.get("display_limit") if overrides else None
     if dl is None and overrides and "display_limit" in overrides:
         dl = 0
+    # 从 overrides 中提取用户保存的策略参数（pullback_range_max 等）
+    params = {}
+    if overrides and overrides.get("params"):
+        params = dict(overrides["params"])
 
     # 内置策略
     if req.strategy_id in PRESET_STRATEGIES:
@@ -299,7 +301,7 @@ def run_preset(req: PresetRequest, request: Request):
         raise HTTPException(status_code=404, detail=f"策略引擎未初始化或策略 {req.strategy_id} 不存在")
 
     try:
-        result = engine.run(req.strategy_id, as_of, pool=req.pool, overrides=overrides or None)
+        result = engine.run(req.strategy_id, as_of, pool=req.pool, params=params, overrides=overrides or None)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -470,8 +472,12 @@ def run_all(request: Request, body: Optional[dict] = None):
             if sid in PRESET_STRATEGIES:
                 r = svc.run_preset(sid, as_of=as_of, precomputed=precomputed, basic_filter=bf, display_limit=dl)
             else:
+                # 从 overrides 中提取用户保存的策略参数
+                s_params = {}
+                if overrides and overrides.get("params"):
+                    s_params = dict(overrides["params"])
                 r = engine.run(
-                    sid, as_of, overrides=overrides or None,
+                    sid, as_of, params=s_params, overrides=overrides or None,
                     precomputed=precomputed, precomputed_history=shared_history,
                 )
                 if dl is not None and dl > 0:

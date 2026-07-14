@@ -118,6 +118,60 @@ def write_cache(
         _write_cache_locked(path, data_dir, as_of, results)
 
 
+def upsert_strategy_result(
+    data_dir: Path,
+    as_of: str,
+    strategy_id: str,
+    result: dict[str, Any],
+) -> None:
+    """单策略手动运行后原子更新缓存：results + ever_rows 同时替换（非并集）。
+
+    与 write_cache 不同，单策略调参重跑后应清空 old ever_rows —— 否则
+    调严参数后旧命中仍灰显（失效行）。
+    """
+    path = _cache_path(data_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    rows = result.get("rows", [])
+
+    with _file_lock:
+        old = _read_cache_unlocked(data_dir)
+        if old is None:
+            old = {}
+        if old.get("as_of") != as_of:
+            # 日期变了：全新写入
+            _write_cache_locked(path, data_dir, as_of, {strategy_id: result})
+            return
+
+        # 合并 results（保留其他策略的结果）
+        results = dict(old.get("results", {}))
+        results[strategy_id] = {
+            "total": result.get("total", 0),
+            "as_of": as_of,
+            "rows": rows,
+        }
+
+        # today_ever_rows: 该策略替换为当前行（其他策略保持原样）
+        ever_rows = dict(old.get("today_ever_rows", {}))
+        ever_rows[strategy_id] = _rows_to_symbol_map(rows)
+        ever_matched = {sid: sorted(maps.keys()) for sid, maps in ever_rows.items()}
+
+        payload = {
+            "as_of": as_of,
+            "results": results,
+            "today_ever_matched": ever_matched,
+            "today_ever_rows": ever_rows,
+            "enriched_mtime": old.get("enriched_mtime"),
+            "updated_at": int(time.time() * 1000),
+        }
+        try:
+            tmp = path.with_name(path.name + ".tmp")
+            tmp.write_text(json.dumps(payload, ensure_ascii=False, default=_json_default), encoding="utf-8")
+            os.replace(tmp, path)
+            logger.info("策略 %s 缓存已更新: %d 条, ever_rows 已替换", strategy_id, len(rows))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("更新策略 %s 缓存失败: %s", strategy_id, e)
+
+
 def _write_cache_locked(
     path: Path,
     data_dir: Path,
@@ -136,15 +190,16 @@ def _write_cache_locked(
         current_row_maps[sid] = _rows_to_symbol_map(r.get("rows", []))
 
     if old_as_of and old_as_of == as_of and old_ever_rows:
-        # 同一天: 合并 — 用当前行数据更新旧数据 (保持最新价格等)
+        # 同一天: 本次运行中命中的策略 → 用当前结果替换 ever_rows（参数可能已变）
+        # 本次未运行的策略 → 保留旧 ever_rows（如 run_all 子集调用场景）
         merged_rows: dict[str, dict[str, dict]] = {}
         all_keys = set(old_ever_rows.keys()) | set(current_row_maps.keys())
         for sid in all_keys:
-            old_map = old_ever_rows.get(sid, {})
-            cur_map = current_row_maps.get(sid, {})
-            # 以旧数据为基础，用当前数据覆盖 (当前数据更新鲜)
-            combined = {**old_map, **cur_map}
-            merged_rows[sid] = combined
+            cur_map = current_row_maps.get(sid)
+            if cur_map is not None:
+                merged_rows[sid] = cur_map
+            else:
+                merged_rows[sid] = old_ever_rows.get(sid, {})
         today_ever_rows = merged_rows
     else:
         # 新的一天或首次写入

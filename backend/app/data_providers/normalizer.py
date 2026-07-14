@@ -17,6 +17,11 @@ def _safe_from_pandas(df):
     types (StringDtype, etc.) by converting them to traditional numpy-backed
     types first. This avoids the pyarrow dependency which can cause segfaults
     on macOS (jemalloc conflict).
+
+    Uses a two-phase approach:
+      1. Known extension types → explicit numpy-backed conversion.
+      2. Any remaining non-numpy columns → generic safe conversion via pandas
+         nullable-dtype to standard-dtype mapping, falling back to object.
     """
     import numpy as np
     import pandas as pd
@@ -45,8 +50,10 @@ def _safe_from_pandas(df):
                     conversions[col_name] = df[col_name].astype(dtype)
                 except Exception:  # noqa: BLE001
                     pass
-        # Pandas extension types (StringDtype, ArrowDtype, etc.)
-        elif isinstance(dtype, pd.api.extensions.ExtensionDtype):
+            continue
+
+        # Pandas extension types (StringDtype, ArrowDtype, Int64, etc.)
+        if isinstance(dtype, pd.api.extensions.ExtensionDtype):
             if isinstance(dtype, pd.StringDtype):
                 conversions[col_name] = df[col_name].astype("object")
             elif isinstance(dtype, pd.BooleanDtype):
@@ -57,7 +64,27 @@ def _safe_from_pandas(df):
             elif isinstance(dtype, (pd.Float32Dtype, pd.Float64Dtype)):
                 conversions[col_name] = df[col_name].astype("float64")
             else:
-                # Fallback for other extension types
+                # Fallback for other extension types (ArrowDtype etc.)
+                try:
+                    conversions[col_name] = df[col_name].astype("object")
+                except Exception:  # noqa: BLE001
+                    pass
+            continue
+
+        # Phase 2: any remaining non-numpy columns (e.g. pandas nullable types
+        # that don't subclass ExtensionDtype in some versions, or types from
+        # reset_index() that produce non-standard dtypes).
+        if not hasattr(dtype, 'kind') or str(getattr(dtype, 'kind', '')) not in 'biufc':
+            try:
+                # Try to convert to numpy-backed via to_numpy
+                converted = pd.Series(df[col_name].to_numpy(), name=col_name)
+                # If the series is object, keep it as object; otherwise let
+                # astype determine the natural numpy dtype.
+                if converted.dtype.kind == 'O':
+                    conversions[col_name] = converted
+                else:
+                    conversions[col_name] = converted.astype(converted.dtype)
+            except Exception:  # noqa: BLE001
                 try:
                     conversions[col_name] = df[col_name].astype("object")
                 except Exception:  # noqa: BLE001

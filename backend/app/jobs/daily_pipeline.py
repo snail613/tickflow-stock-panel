@@ -144,6 +144,28 @@ def run_now(
     # 供 Step 1.5 除权因子回溯范围对齐: 范围拉取→用日K范围, 非范围→最近N天兜底。
     daily_range_start: _date | None = None
 
+    def _daily_batch_end_date(start_date: _date, today: _date) -> _date:
+        """日K batch 拉取的结束日期。
+
+        SDK klines.batch 的 end_time 通常为左闭右开。当 start_date == today 时，
+        若 end_date 也取 today(midnight) 会形成 0 长度区间，导致无数据返回。
+        此时需要取 tomorrow，确保 today 这一天被覆盖。
+        """
+        if start_date == today:
+            return today + _td(days=1)
+        return today
+
+    # 记录今日日K行数，若同步后增加，则强制重算今日 enriched（避免 QuoteService
+    # 只落了少量自选导致 enriched 分区已存在但仅含几只股票，batch 补齐全市场后
+    # 因日期已存在而跳过指标计算）。
+    daily_today_path = repo.store.data_dir / "kline_daily" / f"date={today}" / "part.parquet"
+    daily_today_before = 0
+    if daily_today_path.exists():
+        try:
+            daily_today_before = pl.read_parquet(daily_today_path).height
+        except Exception:  # noqa: S110
+            daily_today_before = 0
+
     # A 股日K拉取开关(默认开);关闭时跳过日K同步,保留已有数据。
     # 数据修正(override_start_date)时即使关闭开关也强制拉取 — 修正就是来补数据的。
     pull_a_share = _prefs.get_pipeline_pull_a_share()
@@ -154,6 +176,7 @@ def run_now(
         # 数据修正: 强制用传入日期作起点 batch 拉取, 忽略实时行情覆写分支。
         start_date = override_start_date
         daily_range_start = start_date
+        end_date = _daily_batch_end_date(start_date, today)
         emit("sync_daily", 12, f"获取日K [{start_date} ~ {today}]…")
         logger.info("sync_daily: [%s ~ %s] repair/override", start_date, today)
 
@@ -163,10 +186,10 @@ def run_now(
         written_daily = kline_sync.sync_and_persist_daily_batch(
             universe, repo, capset,
             start_date=_dt.combine(start_date, _dt.min.time()),
-            end_date=_dt.combine(today, _dt.min.time()),
+            end_date=_dt.combine(end_date, _dt.min.time()),
             on_chunk_done=_daily_chunk_progress,
         )
-        gap_days = (today - start_date).days
+        gap_days = (end_date - start_date).days
         new_daily_days = gap_days
         emit("sync_daily", 45, f"日K 完成,覆盖 {gap_days} 天")
         logger.info("sync_daily: [%s ~ %s] done, %d days", start_date, today, gap_days)
@@ -185,6 +208,7 @@ def run_now(
         #   此时 start_date = latest_daily = today,batch 刷新当天日K。
         start_date = latest_daily
         daily_range_start = start_date
+        end_date = _daily_batch_end_date(start_date, today)
         emit("sync_daily", 12, f"获取日K [{start_date} ~ {today}]…")
         logger.info("sync_daily: [%s ~ %s] %s", start_date, today,
                     "refresh today" if today_exists else "gap fill")
@@ -195,10 +219,10 @@ def run_now(
         written_daily = kline_sync.sync_and_persist_daily_batch(
             universe, repo, capset,
             start_date=_dt.combine(start_date, _dt.min.time()),
-            end_date=_dt.combine(today, _dt.min.time()),
+            end_date=_dt.combine(end_date, _dt.min.time()),
             on_chunk_done=_daily_chunk_progress,
         )
-        gap_days = (today - start_date).days
+        gap_days = (end_date - start_date).days
         new_daily_days = gap_days
         emit("sync_daily", 45, f"日K 完成,覆盖 {gap_days} 天")
         logger.info("sync_daily: [%s ~ %s] done, %d days", start_date, today, gap_days)
@@ -206,6 +230,7 @@ def run_now(
         # 首次：无任何数据 → batch 拉 1 年
         start_date = today - _td(days=365)
         daily_range_start = start_date
+        end_date = _daily_batch_end_date(start_date, today)
         emit("sync_daily", 12, f"获取日K [{start_date} ~ {today}]…")
         logger.info("sync_daily: [%s ~ %s] initial fetch", start_date, today)
 
@@ -215,12 +240,29 @@ def run_now(
         written_daily = kline_sync.sync_and_persist_daily_batch(
             universe, repo, capset,
             start_date=_dt.combine(start_date, _dt.min.time()),
-            end_date=_dt.combine(today, _dt.min.time()),
+            end_date=_dt.combine(end_date, _dt.min.time()),
             on_chunk_done=_daily_chunk_progress,
         )
-        new_daily_days = 365
+        new_daily_days = (end_date - start_date).days
         emit("sync_daily", 45, "日K 完成")
         logger.info("sync_daily: [%s ~ %s] done", start_date, today)
+
+    # 若今日日K行数增加，删除今日 enriched 分区以强制重算，避免 stale 数据。
+    daily_today_after = 0
+    if daily_today_path.exists():
+        try:
+            daily_today_after = pl.read_parquet(daily_today_path).height
+        except Exception:  # noqa: S110
+            daily_today_after = 0
+    if daily_today_after > daily_today_before:
+        enriched_today_path = repo.store.data_dir / "kline_daily_enriched" / f"date={today}" / "part.parquet"
+        if enriched_today_path.exists():
+            try:
+                enriched_today_path.unlink()
+                logger.info("daily data for %s grew %d -> %d rows; enriched partition removed for recomputation",
+                            today, daily_today_before, daily_today_after)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("failed to remove stale enriched partition for %s: %s", today, e)
     _invalidate("daily")
 
     # 单标的新鲜度: 全局 max(date) 会被任一有今日数据的标的"拉高", 掩盖停牌/复牌/
