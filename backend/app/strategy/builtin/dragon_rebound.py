@@ -228,6 +228,11 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
         if best:
             name = sub["name"][0] if "name" in sub.columns else ""
             latest = sub.tail(1).to_dicts()[0]
+            # 合并标准 enriched 字段，确保通用列（现价/涨跌幅/成交额/量比等）能正常展示
+            std_fields = {k: latest.get(k) for k in (
+                "close", "change_pct", "amount", "vol_ratio_5d", "turnover_rate",
+                "change_amount", "prev_close",
+            )}
             row = {
                 "symbol": symbol,
                 "name": name or latest.get("name", ""),
@@ -238,6 +243,7 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
                     + (latest.get("vol_ratio_5d", 1.0) or 1.0) * 5,
                     2,
                 ),
+                **std_fields,
                 **best,
             }
             matched_latest_rows.append(row)

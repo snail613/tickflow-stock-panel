@@ -9,7 +9,7 @@
  * 财务率类用 fmtPct、kdj 用 toFixed(1)、vol_ma 用 fmtBigNum 等。
  */
 import type { ReactNode } from 'react'
-import { fmtPrice, fmtPct, fmtBigNum, priceColorClass } from '@/lib/format'
+import { fmtPrice, fmtPct, fmtDate, fmtBigNum, priceColorClass } from '@/lib/format'
 import type { ColumnConfig } from '@/lib/list-columns'
 import { NUM_CELL_CLASS } from '@/lib/stock-table'
 
@@ -150,6 +150,31 @@ export function renderBuiltinDataCell(r: any, col: ColumnConfig): ReactNode | nu
     case 'revenue_yoy':   return <td key={col.id} className={numCls}>{r.revenue_yoy != null ? fmtPct(r.revenue_yoy) : '—'}</td>
     case 'net_income_yoy':return <td key={col.id} className={numCls}>{r.net_income_yoy != null ? fmtPct(r.net_income_yoy) : '—'}</td>
     case 'debt_ratio':    return <td key={col.id} className={numCls}>{r.debt_ratio != null ? fmtPct(r.debt_ratio) : '—'}</td>
+    // 龙回头策略专用列
+    case 'dragon_peak_date':
+      return <td key={col.id} className={alignTdClass(col.align)}>{fmtDate(r.peak_date)}</td>
+    case 'dragon_peak_price':
+      return <td key={col.id} className={numCls}>{r.peak_price != null ? fmtPrice(r.peak_price) : '—'}</td>
+    case 'dragon_rally_high_date':
+      return <td key={col.id} className={alignTdClass(col.align)}>{fmtDate(r.rally_high_date)}</td>
+    case 'dragon_rally_high':
+      return <td key={col.id} className={numCls}>{r.main_rally_high != null ? fmtPrice(r.main_rally_high) : '—'}</td>
+    case 'dragon_rally_gain_pct':
+      return (
+        <td key={col.id} className={`${numCls} ${(r.rally_gain_pct ?? 0) > 0 ? 'text-red-500 font-medium' : ''}`}>
+          {r.rally_gain_pct != null ? `${Number(r.rally_gain_pct).toFixed(2)}%` : '—'}
+        </td>
+      )
+    case 'dragon_pullback_date':
+      return <td key={col.id} className={alignTdClass(col.align)}>{fmtDate(r.pullback_date)}</td>
+    case 'dragon_pullback_low':
+      return <td key={col.id} className={numCls}>{r.pullback_low != null ? fmtPrice(r.pullback_low) : '—'}</td>
+    case 'dragon_price_distance_pct':
+      return (
+        <td key={col.id} className={`${numCls} font-medium ${priceColorClass(r.price_distance_pct != null ? r.price_distance_pct / 100 : null)}`}>
+          {r.price_distance_pct != null ? `${r.price_distance_pct > 0 ? '+' : ''}${Number(r.price_distance_pct).toFixed(2)}%` : '—'}
+        </td>
+      )
     default:
       return <td key={col.id} className={`${alignTdClass(col.align)} text-muted`}>—</td>
   }

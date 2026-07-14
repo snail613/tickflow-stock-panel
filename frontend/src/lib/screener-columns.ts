@@ -83,6 +83,15 @@ export const SCREENER_BUILTIN_COLUMNS: ColumnConfig[] = [
   { id: 'builtin:revenue_yoy', source: { type: 'builtin', key: 'revenue_yoy' }, label: '营收增速', visible: false, align: 'right' },
   { id: 'builtin:net_income_yoy', source: { type: 'builtin', key: 'net_income_yoy' }, label: '净利增速', visible: false, align: 'right' },
   { id: 'builtin:debt_ratio', source: { type: 'builtin', key: 'debt_ratio' }, label: '负债率', visible: false, align: 'right' },
+  // 龙回头策略专用列
+  { id: 'builtin:dragon_peak_date', source: { type: 'builtin', key: 'dragon_peak_date' }, label: '前顶日期', visible: true, align: 'left' },
+  { id: 'builtin:dragon_peak_price', source: { type: 'builtin', key: 'dragon_peak_price' }, label: '前顶价格', visible: true, align: 'right' },
+  { id: 'builtin:dragon_rally_high_date', source: { type: 'builtin', key: 'dragon_rally_high_date' }, label: '主升高日', visible: false, align: 'left' },
+  { id: 'builtin:dragon_rally_high', source: { type: 'builtin', key: 'dragon_rally_high' }, label: '主升最高', visible: false, align: 'right' },
+  { id: 'builtin:dragon_rally_gain_pct', source: { type: 'builtin', key: 'dragon_rally_gain_pct' }, label: '主升涨幅', visible: true, align: 'right' },
+  { id: 'builtin:dragon_pullback_date', source: { type: 'builtin', key: 'dragon_pullback_date' }, label: '回踩日期', visible: false, align: 'left' },
+  { id: 'builtin:dragon_pullback_low', source: { type: 'builtin', key: 'dragon_pullback_low' }, label: '回踩低点', visible: false, align: 'right' },
+  { id: 'builtin:dragon_price_distance_pct', source: { type: 'builtin', key: 'dragon_price_distance_pct' }, label: '距前顶', visible: true, align: 'right' },
 ]
 
 export const SCREENER_COLUMN_GROUPS: ColumnGroup[] = [
@@ -96,6 +105,7 @@ export const SCREENER_COLUMN_GROUPS: ColumnGroup[] = [
   { id: 'limit', label: '连板', icon: '🔥', keys: ['limit_ups', 'limit_downs'] },
   { id: 'signal', label: '信号', icon: '📡', keys: ['signals', 'candle', 'intraday'] },
   { id: 'finance', label: '财务', icon: '📋', keys: ['eps', 'bps', 'roe', 'pe_ttm', 'pb', 'gross_margin', 'net_margin', 'revenue_yoy', 'net_income_yoy', 'debt_ratio'] },
+  { id: 'dragon', label: '龙回头', icon: '🐉', keys: ['dragon_peak_date', 'dragon_peak_price', 'dragon_rally_high_date', 'dragon_rally_high', 'dragon_rally_gain_pct', 'dragon_pullback_date', 'dragon_pullback_low', 'dragon_price_distance_pct'] },
 ]
 
 export async function saveScreenerColumnConfig(columns: ColumnConfig[]): Promise<void> {
