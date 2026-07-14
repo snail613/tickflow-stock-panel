@@ -108,32 +108,43 @@ export const SCREENER_COLUMN_GROUPS: ColumnGroup[] = [
   { id: 'dragon', label: '龙回头', icon: '🐉', keys: ['dragon_peak_date', 'dragon_peak_price', 'dragon_rally_high_date', 'dragon_rally_high', 'dragon_rally_gain_pct', 'dragon_pullback_date', 'dragon_pullback_low', 'dragon_price_distance_pct'] },
 ]
 
-export async function saveScreenerColumnConfig(columns: ColumnConfig[]): Promise<void> {
+export async function saveScreenerColumnConfig(columns: ColumnConfig[], strategyId: string): Promise<void> {
   const saveable = serializeColumns(columns)
-  storage.screenerResultColumns.set(saveable)
+  storage.screenerResultColumns(strategyId).set(saveable)
   try {
     const { api } = await import('@/lib/api')
-    await api.updateScreenerResultColumns(saveable)
+    await api.updateScreenerResultColumns(saveable, strategyId)
   } catch {
     // 后端不可用时 localStorage 仍有效
   }
 }
 
-export async function loadScreenerColumnConfig(): Promise<ColumnConfig[]> {
+export async function loadScreenerColumnConfig(strategyId: string): Promise<ColumnConfig[]> {
   try {
     const { api } = await import('@/lib/api')
-    const res = await api.screenerResultColumns()
+    const res = await api.screenerResultColumns(strategyId)
     if (res.columns && res.columns.length > 0) {
       const merged = mergeColumns(res.columns, SCREENER_BUILTIN_COLUMNS)
-      storage.screenerResultColumns.set(serializeColumns(merged))
+      storage.screenerResultColumns(strategyId).set(serializeColumns(merged))
       return merged
     }
   } catch {
     // 后端不可用，继续尝试 localStorage
   }
 
-  const saved = storage.screenerResultColumns.get([]) as ColumnConfig[]
+  // per-strategy localStorage
+  const saved = storage.screenerResultColumns(strategyId).get([]) as ColumnConfig[]
   if (saved.length > 0) return mergeColumns(saved, SCREENER_BUILTIN_COLUMNS)
+
+  // 迁移：尝试旧全局配置
+  const legacy = storage.screenerResultColumnsLegacy.get([]) as ColumnConfig[]
+  if (legacy.length > 0) {
+    const merged = mergeColumns(legacy, SCREENER_BUILTIN_COLUMNS)
+    // 迁移后写入新 key 并清除旧 key
+    storage.screenerResultColumns(strategyId).set(serializeColumns(merged))
+    try { localStorage.removeItem('screener_result_columns') } catch { /* ignore */ }
+    return merged
+  }
 
   return [...SCREENER_BUILTIN_COLUMNS]
 }

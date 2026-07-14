@@ -1145,13 +1145,15 @@ export const api = {
       body: JSON.stringify({ columns }),
     }),
 
-  // 策略结果列表列配置
-  screenerResultColumns: () =>
-    request<{ columns: any[] | null }>('/api/settings/preferences/screener-result-columns'),
-  updateScreenerResultColumns: (columns: any[]) =>
+  // 策略结果列表列配置（按 strategy_id 存取）
+  screenerResultColumns: (strategyId?: string) =>
+    request<{ columns: any[] | null }>(
+      `/api/settings/preferences/screener-result-columns${strategyId ? `?strategy_id=${encodeURIComponent(strategyId)}` : ''}`
+    ),
+  updateScreenerResultColumns: (columns: any[], strategyId?: string) =>
     request<{ columns: any[] }>('/api/settings/preferences/screener-result-columns', {
       method: 'PUT',
-      body: JSON.stringify({ columns }),
+      body: JSON.stringify({ columns, strategy_id: strategyId || null }),
     }),
 
   capabilities: () => request<CapabilitiesResponse>('/api/capabilities'),

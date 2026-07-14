@@ -28,6 +28,7 @@ import {
   SCREENER_BUILTIN_COLUMNS,
   SCREENER_COLUMN_GROUPS,
   buildExtColumnsParam,
+  mergeColumns,
   loadScreenerColumnConfig,
   saveScreenerColumnConfig,
   type ColumnConfig,
@@ -75,21 +76,60 @@ export function Screener() {
   const filterMap = useRef<Map<string, ScreenerFilterType>>(new Map())
   const runAllDateRef = useRef<string | null>(null)
 
-  // 结果列配置 — 默认内置列，异步合并后端/localStorage 偏好
+  // 结果列配置 — 按策略 ID 区分（切换策略时重新加载/保存）
   const [columns, setColumns] = useState<ColumnConfig[]>([...SCREENER_BUILTIN_COLUMNS])
   const [customizerOpen, setCustomizerOpen] = useState(false)
-  const columnsLoaded = useRef(false)
+  const columnsCache = useRef<Map<string, ColumnConfig[]>>(new Map())
+  const prevStrategyRef = useRef<string | null>(null)
 
+  // 首次加载（无活跃策略时，尝试旧全局配置兼容）
   useEffect(() => {
-    if (columnsLoaded.current) return
-    columnsLoaded.current = true
-    loadScreenerColumnConfig().then(setColumns)
+    if (activeStrategy) return
+    // 无活跃策略时加载旧格式全局配置（仅首次）
+    const legacy = storage.screenerResultColumnsLegacy.get([]) as ColumnConfig[]
+    if (legacy.length > 0) {
+      setColumns(mergeColumns(legacy, SCREENER_BUILTIN_COLUMNS))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 切换策略时：保存旧策略列配置 → 加载新策略列配置
+  useEffect(() => {
+    const prev = prevStrategyRef.current
+    // 保存旧策略的列配置
+    if (prev) {
+      columnsCache.current.set(prev, columns)
+    }
+    prevStrategyRef.current = activeStrategy
+
+    if (!activeStrategy) return
+
+    // 优先从内存缓存取
+    const cached = columnsCache.current.get(activeStrategy)
+    if (cached) {
+      setColumns(cached)
+      return
+    }
+
+    // 异步加载
+    let cancelled = false
+    loadScreenerColumnConfig(activeStrategy).then(cols => {
+      if (!cancelled) {
+        setColumns(cols)
+        columnsCache.current.set(activeStrategy, cols)
+      }
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeStrategy])
 
   const handleColumnsChange = useCallback((next: ColumnConfig[]) => {
     setColumns(next)
-    saveScreenerColumnConfig(next)
-  }, [])
+    columnsCache.current.set(activeStrategy ?? '__none__', next)
+    if (activeStrategy) {
+      saveScreenerColumnConfig(next, activeStrategy)
+    }
+  }, [activeStrategy])
 
   const extColumnsParam = useMemo(() => buildExtColumnsParam(columns), [columns])
 

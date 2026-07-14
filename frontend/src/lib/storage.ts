@@ -33,8 +33,11 @@ export const storage = {
   /** 个股日K信息条指标配置 */
   stockInfoBarFields:   kv<unknown[]>('stock_info_bar_fields'),
 
-  /** 策略结果列表列配置 */
-  screenerResultColumns: kv<unknown[]>('screener_result_columns'),
+  /** 策略结果列表列配置（按 strategy_id 命名空间） */
+  screenerResultColumns: (strategyId: string) => kv<unknown[]>(`screener_result_columns:${strategyId}`),
+
+  /** 旧全局列配置（迁移用） */
+  screenerResultColumnsLegacy: kv<unknown[]>('screener_result_columns'),
 
   /** 自选列表视图模式 table | card */
   watchlistView:        kv<string>('watchlist_view'),

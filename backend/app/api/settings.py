@@ -628,19 +628,20 @@ def update_watchlist_columns(req: dict) -> dict:
 
 
 @router.get("/preferences/screener-result-columns")
-def get_screener_result_columns() -> dict:
-    """返回策略结果列表列配置。"""
+def get_screener_result_columns(strategy_id: str | None = None) -> dict:
+    """返回策略结果列表列配置。strategy_id 为空时返回全局默认。"""
     from app.services import preferences
-    cols = preferences.get_screener_result_columns()
+    cols = preferences.get_screener_result_columns(strategy_id or None)
     return {"columns": cols}
 
 
 @router.put("/preferences/screener-result-columns")
 def update_screener_result_columns(req: dict) -> dict:
-    """保存策略结果列表列配置。"""
+    """保存策略结果列表列配置。strategy_id 为空时保存为全局默认。"""
     from app.services import preferences
     columns = req.get("columns", [])
-    saved = preferences.set_screener_result_columns(columns)
+    strategy_id = req.get("strategy_id") or None
+    saved = preferences.set_screener_result_columns(columns, strategy_id)
     return {"columns": saved}
 
 

@@ -666,14 +666,51 @@ def set_watchlist_columns(columns: list[dict]) -> list[dict]:
     return columns
 
 
-def get_screener_result_columns() -> list[dict] | None:
-    """返回策略结果列表列配置。"""
-    return load().get("screener_result_columns")
+def _migrate_screener_columns(data: dict) -> dict:
+    """将旧的全局列配置 (flat list) 迁移为 per-strategy dict 格式。"""
+    cols = data.get("screener_result_columns")
+    if isinstance(cols, list):
+        # 旧格式: 全局列表 → 迁移为空 dict（下次按策略保存）
+        data["screener_result_columns"] = {}
+        save({"screener_result_columns": {}})
+        return {}
+    if isinstance(cols, dict):
+        return cols
+    return {}
 
 
-def set_screener_result_columns(columns: list[dict]) -> list[dict]:
-    """保存策略结果列表列配置。"""
-    save({"screener_result_columns": columns})
+def get_screener_result_columns(strategy_id: str | None = None) -> list[dict] | None:
+    """返回策略结果列表列配置。
+    strategy_id 为 None 时返回全局默认配置，否则返回该策略的专属配置。
+    """
+    data = load()
+    raw = data.get("screener_result_columns")
+
+    # 兼容旧格式：flat list
+    if isinstance(raw, list):
+        return raw
+
+    if not isinstance(raw, dict):
+        return None
+
+    # dict 格式：per-strategy
+    if strategy_id and strategy_id in raw:
+        return raw[strategy_id]
+
+    # 无 per-strategy 配置时，尝试全局默认 "__default__"
+    return raw.get("__default__")
+
+
+def set_screener_result_columns(columns: list[dict], strategy_id: str | None = None) -> list[dict]:
+    """保存策略结果列表列配置。strategy_id 为 None 时保存为全局默认。"""
+    data = load()
+    raw = data.get("screener_result_columns")
+    if not isinstance(raw, dict):
+        raw = {}
+    key = strategy_id or "__default__"
+    raw[key] = columns
+    data["screener_result_columns"] = raw
+    save({"screener_result_columns": raw})
     return columns
 
 
