@@ -301,12 +301,10 @@ class StrategyEngine:
             if df.is_empty():
                 return StrategyResult(as_of=as_of, strategy_id=strategy_id)
 
-            # Stage 1: 对历史数据先应用基础过滤，再执行 filter_history。
-            # 避免 filter_history 返回自定义列后缺失 close/amount/market_cap 等过滤字段。
-            if bf and bf.get("enabled", True):
-                df = self._apply_basic_filter(df, bf)
-            if df.is_empty():
-                return StrategyResult(as_of=as_of, strategy_id=strategy_id)
+            # filter_history 策略跳过 basic_filter:
+            # basic_filter 按单日条件逐行过滤，施加到数百天历史数据会导致时间序列断档，
+            # 破坏形态识别（峰值检测、连续 K 线条件等），反而减少有效结果。
+            # 策略自身的 META.basic_filter 仍保留在 UI 中供用户调参参考。
 
             df = s.filter_history_fn(df, params)
             if df.is_empty():
@@ -321,8 +319,8 @@ class StrategyEngine:
                 return StrategyResult(as_of=as_of, strategy_id=strategy_id)
 
         # Stage 1: 基础过滤（enabled 默认开启; 显式 enabled=false 才跳过）
-        # filter_history 策略已在 filter_history 之前应用过基础过滤，
-        # 其返回的是自定义结果列，不再包含 close/amount 等过滤字段，因此跳过。
+        # filter_history 策略跳过基础过滤：历史数据上过滤会破坏时间序列连续性；
+        # filter_history 输出的是自定义结果列，也不包含 close/amount 等过滤字段。
         if not s.filter_history_fn and bf and bf.get("enabled", True):
             df = self._apply_basic_filter(df, bf)
 
