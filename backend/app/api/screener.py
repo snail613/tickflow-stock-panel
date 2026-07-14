@@ -453,7 +453,7 @@ def run_all(request: Request, body: Optional[dict] = None):
             if s.filter_history_fn and sid in id_set
         ]
         if history_strats:
-            max_lb = min(max(s.lookback_days for _, s in history_strats), 30)
+            max_lb = max(s.lookback_days for _, s in history_strats)
             shared_history = svc._load_enriched_history(as_of, max(1, max_lb))
     else:
         history_strats = []

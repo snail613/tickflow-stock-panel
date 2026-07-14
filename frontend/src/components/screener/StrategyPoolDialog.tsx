@@ -111,9 +111,10 @@ export function StrategyPoolDialog({ pool, onConfirm, onClose }: Props) {
       const rawId = parseMetaId(code) || fileStem(file.name)
       if (!rawId) throw new Error('无法识别策略 ID，请检查 META.id 或文件名')
       const target: 'ai' | 'custom' = rawId.startsWith('ai_') ? 'ai' : 'custom'
-      const strategyId = target === 'ai'
-        ? rawId
-        : (rawId.startsWith('custom_') ? rawId : `custom_${rawId}`)
+      // 保持策略 ID 与代码中的 META.id 一致；后端已允许自定义策略不使用 custom_ 前缀。
+      // 这样用户直接放入 data/strategies/custom/dragon_rebound.py 的策略，
+      // 通过导入功能上传后 ID 仍然是 dragon_rebound，不会变成 custom_dragon_rebound。
+      const strategyId = rawId
       const result = await api.strategySaveCodeV2({
         strategy_id: strategyId,
         code,

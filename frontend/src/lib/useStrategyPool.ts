@@ -19,6 +19,10 @@ export function useStrategyPool() {
     setPool(newOrder)
   }, [])
 
+  const clearPool = useCallback(() => {
+    setPool([])
+  }, [])
+
   // 清除池中不存在于 validIds 的失效策略(如本地开发残留的自定义策略)。
   // 仅当确实有失效项时才更新,避免无谓重渲染。
   const prune = useCallback((validIds: Iterable<string>) => {
@@ -32,5 +36,5 @@ export function useStrategyPool() {
 
   const isInPool = useCallback((id: string) => pool.includes(id), [pool])
 
-  return { pool, addToPool, removeFromPool, reorderPool, prune, isInPool }
+  return { pool, addToPool, removeFromPool, reorderPool, clearPool, prune, isInPool }
 }

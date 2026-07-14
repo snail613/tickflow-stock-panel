@@ -462,8 +462,9 @@ def _save_strategy_code(req: StrategyCodeSaveRequest, request: Request, *, legac
     if not legacy_ai_path and req.mode == "create":
         if req.target_source == "ai" and not sid.startswith("ai_"):
             raise ValueError("AI 策略 ID 必须以 ai_ 开头")
-        if req.target_source == "custom" and not sid.startswith("custom_"):
-            raise ValueError("自定义策略 ID 必须以 custom_ 开头")
+        # 自定义策略不再强制要求 custom_ 前缀，允许与 META.id / 文件名保持一致
+        # （例如用户直接放入 data/strategies/custom/dragon_rebound.py 的策略，
+        #  通过导入/保存时仍可用 dragon_rebound 作为 ID）。
 
     if legacy_ai_path:
         out_dir = _target_dir(data_dir, "ai")

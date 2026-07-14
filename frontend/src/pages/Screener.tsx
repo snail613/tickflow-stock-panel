@@ -47,7 +47,7 @@ export function Screener() {
   const [showBuilder, setShowBuilder] = useState(false)
   const [builderMode, setBuilderMode] = useState<'create' | 'modify'>('create')
   const [showStore, setShowStore] = useState(false)
-  const { pool, addToPool, removeFromPool, reorderPool, prune } = useStrategyPool()
+  const { pool, addToPool, removeFromPool, reorderPool, clearPool, prune } = useStrategyPool()
   const [cardSize, setCardSize] = useState<CardSize>(loadCardSize)
   // 日k蜡烛图显示开关（仅当 candle 列可见时才有意义；持久化）
   const [dailyKChartVisible, setDailyKChartVisible] = useState<boolean>(() => storage.screenerCandle.get(true))
@@ -682,8 +682,26 @@ export function Screener() {
         <section>
           {strategies.isLoading && <div className="text-sm text-muted">加载中…</div>}
           {!strategies.isLoading && visiblePool.length === 0 && (
-            <div className="text-sm text-muted py-4 text-center border border-dashed border-border rounded-btn">
-              策略池为空，点击右上角「策略池」按钮添加策略
+            <div className="text-sm text-muted py-4 text-center border border-dashed border-border rounded-btn space-y-2">
+              {pool.length > 0 && availableStrategyIds.size > 0 ? (
+                <>
+                  <p>
+                    策略池中的 {pool.length} 个策略已失效（ID 与当前可用策略不匹配，
+                    常见于导入时 ID 被改写）。
+                  </p>
+                  <button
+                    onClick={() => {
+                      clearPool()
+                      toast('已清空策略池，请重新添加策略', 'success')
+                    }}
+                    className="px-3 py-1 rounded-btn border border-danger/30 bg-danger/10 text-danger text-xs font-medium hover:bg-danger/15 transition-colors cursor-pointer"
+                  >
+                    清空策略池
+                  </button>
+                </>
+              ) : (
+                <p>策略池为空，点击右上角「策略池」按钮添加策略</p>
+              )}
             </div>
           )}
           <div className={cardWrapCls(cardSize)}>

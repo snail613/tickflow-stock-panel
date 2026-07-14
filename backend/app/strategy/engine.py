@@ -283,6 +283,12 @@ class StrategyEngine:
         params = params or {}
         overrides = overrides or {}
 
+        # 基础过滤: 策略默认 basic_filter 兜底, 用户 override 优先覆盖。
+        # 这样策略文件里写的 exclude_st/price_min 等默认值即使前端没保存也能生效。
+        bf = dict(s.basic_filter) if s.basic_filter else {}
+        if overrides and overrides.get("basic_filter"):
+            bf.update(overrides["basic_filter"])
+
         # 加载数据。普通策略只读目标日期；声明 filter_history 的策略读取历史窗口。
         if s.filter_history_fn:
             if precomputed_history is not None and not precomputed_history.is_empty():
@@ -294,6 +300,14 @@ class StrategyEngine:
                 return StrategyResult(as_of=as_of, strategy_id=strategy_id)
             if df.is_empty():
                 return StrategyResult(as_of=as_of, strategy_id=strategy_id)
+
+            # Stage 1: 对历史数据先应用基础过滤，再执行 filter_history。
+            # 避免 filter_history 返回自定义列后缺失 close/amount/market_cap 等过滤字段。
+            if bf and bf.get("enabled", True):
+                df = self._apply_basic_filter(df, bf)
+            if df.is_empty():
+                return StrategyResult(as_of=as_of, strategy_id=strategy_id)
+
             df = s.filter_history_fn(df, params)
             if df.is_empty():
                 return StrategyResult(as_of=as_of, strategy_id=strategy_id)
@@ -306,14 +320,10 @@ class StrategyEngine:
             if df.is_empty():
                 return StrategyResult(as_of=as_of, strategy_id=strategy_id)
 
-        # 基础过滤: 策略默认 basic_filter 兜底, 用户 override 优先覆盖。
-        # 这样策略文件里写的 exclude_st/price_min 等默认值即使前端没保存也能生效。
-        bf = dict(s.basic_filter) if s.basic_filter else {}
-        if overrides and overrides.get("basic_filter"):
-            bf.update(overrides["basic_filter"])
-
         # Stage 1: 基础过滤（enabled 默认开启; 显式 enabled=false 才跳过）
-        if bf and bf.get("enabled", True):
+        # filter_history 策略已在 filter_history 之前应用过基础过滤，
+        # 其返回的是自定义结果列，不再包含 close/amount 等过滤字段，因此跳过。
+        if not s.filter_history_fn and bf and bf.get("enabled", True):
             df = self._apply_basic_filter(df, bf)
 
         # Pool 过滤
