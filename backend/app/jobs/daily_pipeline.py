@@ -17,6 +17,7 @@ from pathlib import Path
 import polars as pl
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.date import DateTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.indicators.pipeline import run_pipeline
@@ -29,6 +30,11 @@ from app.tickflow.repository import KlineRepository
 logger = logging.getLogger(__name__)
 
 ProgressCb = Callable[..., None]
+
+# 日K数据就绪重试配置（免费档当日数据可能延迟就绪）
+_DAILY_RETRY_INTERVALS = [30, 30, 30, 30, 60]  # 分钟: 30/60/90/120/180 分钟后重试
+_DAILY_RETRY_MIN_RATIO = 0.5       # 今日日K数量 / 标的池大小 < 此比例时触发重试
+_DAILY_RETRY_JOB_PREFIX = "daily_retry_"
 
 
 class PipelineStageError(RuntimeError):
@@ -265,6 +271,9 @@ def run_now(
                 logger.warning("failed to remove stale enriched partition for %s: %s", today, e)
     _invalidate("daily")
 
+    # 免费档: 检查今天日K是否已就绪, 不足则安排定时重试
+    _maybe_schedule_daily_retry(repo, capset, universe)
+
     # 单标的新鲜度: 全局 max(date) 会被任一有今日数据的标的"拉高", 掩盖停牌/复牌/
     # 一直拉失败而掉队的个股缺口(全局判据只刷"今天", 永不回补掉队标的的历史缺口)。
     # 这里检测并**可见化**(WARNING + 计入结果), 让掉队标的不再隐形。
@@ -335,10 +344,12 @@ def run_now(
     #     - 无新日期 + 有新除权因子 → 增量: 只重算受影响个股的全部日期
     #     - 无新日期 + 无变化 → 跳过
     enriched_dir = repo.store.data_dir / "kline_daily_enriched"
-    enriched_exists = enriched_dir.exists() and any(enriched_dir.glob("date=*"))
+    # 只统计含 part.parquet 的有效分区, 避免空目录(上次失败残留)干扰 diff
+    _valid_enriched = lambda: [d for d in enriched_dir.glob("date=*") if (d / "part.parquet").exists()]
+    enriched_exists = enriched_dir.exists() and bool(_valid_enriched())
     daily_dir = repo.store.data_dir / "kline_daily"
     daily_days = len(list(daily_dir.glob("date=*"))) if daily_dir.exists() else 0
-    prev_enriched_days = len(list(enriched_dir.glob("date=*"))) if enriched_exists else 0
+    prev_enriched_days = len(_valid_enriched()) if enriched_exists else 0
 
     # 判断新日期方向: 找 daily 和 enriched 的日期集合做比较
     forward_incremental = False
@@ -346,7 +357,7 @@ def run_now(
 
     if daily_days > prev_enriched_days and enriched_exists:
         daily_dates = sorted(d.stem.split("=")[1] for d in daily_dir.glob("date=*"))
-        enriched_dates = sorted(d.stem.split("=")[1] for d in enriched_dir.glob("date=*"))
+        enriched_dates = sorted(d.stem.split("=")[1] for d in _valid_enriched())
         earliest_enriched = enriched_dates[0]
         latest_enriched = enriched_dates[-1]
         new_dates = set(daily_dates) - set(enriched_dates)
@@ -1010,3 +1021,174 @@ def set_app_state(app_state) -> None:
 
 def _get_app_state():
     return _app_state_ref
+
+
+# ================================================================
+# 免费档日K数据就绪检测与自动重试
+# ================================================================
+
+def _check_daily_sufficient(repo: KlineRepository, universe_size: int) -> tuple[bool, int]:
+    """检查今天日K数据是否充足。返回 (是否充足, 今日条数)。"""
+    from datetime import date as _date
+    today = _date.today()
+    daily_today = repo.store.data_dir / "kline_daily" / f"date={today}" / "part.parquet"
+    if not daily_today.exists():
+        return False, 0
+    try:
+        count = pl.read_parquet(daily_today).height
+    except Exception:  # noqa: BLE001
+        return False, 0
+    sufficient = count >= _DAILY_RETRY_MIN_RATIO * universe_size
+    return sufficient, count
+
+
+def _retry_daily_sync(
+    repo: KlineRepository,
+    capset: CapabilitySet,
+    universe: list[str],
+    retry_index: int,
+    max_retries: int,
+) -> None:
+    """单次日K重试：检查数据就绪 → 不足则重拉 → 仍不足则排下一次。"""
+    from datetime import date as _date, datetime as _dt, timedelta as _td
+
+    today = _date.today()
+    sufficient, count = _check_daily_sufficient(repo, len(universe))
+
+    if sufficient:
+        logger.info("日K重试 #%d: 数据已就绪 (%d/%d 只), 停止重试",
+                    retry_index, count, len(universe))
+        _finalize_daily_retry(repo)
+        return
+
+    logger.info("日K重试 #%d: 当前仅 %d/%d 只, 重新拉取 %s 日K",
+                retry_index, count, len(universe), today)
+
+    # 记录重拉前条数
+    daily_path = repo.store.data_dir / "kline_daily" / f"date={today}" / "part.parquet"
+    before = count
+
+    # 重拉今日日K
+    start = _dt.combine(today, _dt.min.time())
+    end = _dt.combine(today + _td(days=1), _dt.min.time())
+    from app.services import kline_sync
+    written = kline_sync.sync_and_persist_daily_batch(
+        universe, repo, capset,
+        start_date=start, end_date=end,
+    )
+
+    # 刷新视图
+    try:
+        d = repo.store.data_dir.as_posix()
+        repo.db.execute(
+            f"CREATE OR REPLACE VIEW kline_daily AS "
+            f"SELECT * FROM read_parquet('{d}/kline_daily/**/*.parquet', union_by_name=true)"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("日K重试刷新视图失败: %s", e)
+
+    # 重新检查
+    sufficient, new_count = _check_daily_sufficient(repo, len(universe))
+    delta = new_count - before
+
+    if sufficient:
+        logger.info("日K重试 #%d: 成功! %d -> %d 只 (+%d), 数据已就绪",
+                    retry_index, before, new_count, delta)
+        _finalize_daily_retry(repo)
+        return
+
+    logger.info("日K重试 #%d: %d -> %d 只 (+%d), 仍不充足",
+                retry_index, before, new_count, delta)
+
+    # 安排下一次重试
+    if retry_index < max_retries:
+        interval = _DAILY_RETRY_INTERVALS[min(retry_index, len(_DAILY_RETRY_INTERVALS) - 1)]
+        run_time = _dt.now() + _td(minutes=interval)
+        job_id = f"{_DAILY_RETRY_JOB_PREFIX}{retry_index + 1}"
+
+        app_state = _get_app_state()
+        scheduler = getattr(app_state, "scheduler", None) if app_state else None
+        if scheduler:
+            try:
+                scheduler.add_job(
+                    lambda: _retry_daily_sync(
+                        repo, capset, universe, retry_index + 1, max_retries,
+                    ),
+                    trigger=DateTrigger(run_date=run_time),
+                    id=job_id,
+                    replace_existing=True,
+                )
+                logger.info("日K重试 #%d 已排期: %s", retry_index + 1,
+                            run_time.strftime("%H:%M"))
+            except Exception as e:  # noqa: BLE001
+                logger.warning("安排日K重试失败: %s", e)
+    else:
+        logger.warning("日K重试耗尽 (%d 次), 最终仅 %d/%d 只标的",
+                       max_retries, new_count, len(universe))
+
+
+def _finalize_daily_retry(repo: KlineRepository) -> None:
+    """日K重试成功后: 删除 stale enriched 分区, 触发缓存刷新以重算指标。"""
+    from datetime import date as _date
+    today = _date.today()
+    enriched_path = repo.store.data_dir / "kline_daily_enriched" / f"date={today}" / "part.parquet"
+    if enriched_path.exists():
+        try:
+            enriched_path.unlink()
+            logger.info("日K重试完成: 已移除 %s stale enriched 分区", today)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("移除 stale enriched 分区失败: %s", e)
+
+    # 刷新内存缓存（触发 enriched 即时计算）
+    try:
+        repo.refresh_cache()
+        logger.info("日K重试完成: 缓存已刷新")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("日K重试后刷新缓存失败: %s", e)
+
+
+def _maybe_schedule_daily_retry(
+    repo: KlineRepository,
+    capset: CapabilitySet,
+    universe: list[str],
+) -> None:
+    """管道日K同步后检查: 免费档数据不足则排期重试。"""
+    from datetime import datetime, timedelta
+
+    if capset.has(Cap.QUOTE_POOL):
+        # 付费档用实时行情覆写, 无需重试
+        return
+
+    sufficient, count = _check_daily_sufficient(repo, len(universe))
+    if sufficient:
+        return
+
+    max_retries = len(_DAILY_RETRY_INTERVALS)
+    logger.warning("日K数据不足 (%d/%d 只), 将安排最多 %d 次重试",
+                   count, len(universe), max_retries)
+
+    interval = _DAILY_RETRY_INTERVALS[0]
+    run_time = datetime.now() + timedelta(minutes=interval)
+    job_id = f"{_DAILY_RETRY_JOB_PREFIX}1"
+
+    app_state = _get_app_state()
+    scheduler = getattr(app_state, "scheduler", None) if app_state else None
+    if scheduler is None:
+        logger.warning("无法安排日K重试: scheduler 不可用")
+        return
+
+    # 清理旧重试作业
+    for i in range(1, max_retries + 1):
+        try:
+            scheduler.remove_job(f"{_DAILY_RETRY_JOB_PREFIX}{i}")
+        except Exception:  # noqa: S110
+            pass
+
+    scheduler.add_job(
+        lambda: _retry_daily_sync(repo, capset, universe, 1, max_retries),
+        trigger=DateTrigger(run_date=run_time),
+        id=job_id,
+        replace_existing=True,
+    )
+    logger.info("日K重试 #1 已排期: %s (间隔 %d 分钟)",
+                run_time.strftime("%H:%M"), interval)

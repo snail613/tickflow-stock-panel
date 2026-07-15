@@ -962,9 +962,14 @@ def run_pipeline(data_dir: Path | None = None,
     if new_dates_only:
         # ── 向后增量模式 ──
         # 1. 找出 daily 有但 enriched 还没有的日期
+        #    只统计含 part.parquet 的有效分区 (避免空目录干扰 diff)
         enriched_dates = set()
         if enriched_base.exists():
-            enriched_dates = {p.stem.split("=")[1] for p in enriched_base.glob("date=*")}
+            enriched_dates = {
+                p.stem.split("=")[1]
+                for p in enriched_base.glob("date=*")
+                if (p / "part.parquet").exists()
+            }
 
         # 读新增日期的 daily 数据 (所有标的)
         new_date_dirs = sorted(
