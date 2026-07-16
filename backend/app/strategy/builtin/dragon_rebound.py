@@ -58,12 +58,19 @@ META = {
 # ───────────────────────── 形态识别核心 ─────────────────────────
 
 def _detect_peaks(prices: list[float], window: int = 20) -> list[int]:
-    """滑动窗口局部最高点（左右各 window 根，共 2*window+1 根）。"""
+    """滑动窗口局部最高点。
+
+    左侧要求 window 根确认（确保有足够历史来定位局部顶）；
+    右侧不做硬性要求，有几天就用几天，避免丢弃数据末尾的近期峰值。
+    """
     n = len(prices)
     peaks: list[int] = []
-    for i in range(window, n - window):
+    for i in range(window, n):
+        # 左侧保留 window 根；右侧最多 window 根，以实际可用数据为准
         peak = True
-        for j in range(i - window, i + window + 1):
+        left = max(0, i - window)
+        right = min(n, i + window + 1)
+        for j in range(left, right):
             if j == i:
                 continue
             if prices[j] > prices[i]:
@@ -94,6 +101,10 @@ def _score_stock(sub: pl.DataFrame, peak_idx: int, params: dict) -> dict | None:
     if max(highs[: peak_idx + 1]) > peak_price:
         return None
 
+    # E: 峰值不位于数据末尾（必须在 B 之前，避免 B 的切片为空）
+    if peak_idx >= n - 1:
+        return None
+
     # B: 峰值后 10 天内无更高点
     end_b = min(n, peak_idx + 11)
     if max(highs[peak_idx + 1 : end_b]) > peak_price:
@@ -111,10 +122,6 @@ def _score_stock(sub: pl.DataFrame, peak_idx: int, params: dict) -> dict | None:
         )
         if not has_limit:
             return None
-
-    # E: 峰值不位于数据末尾
-    if peak_idx >= n - 1:
-        return None
 
     # F: 从峰值到后续最高点的涨幅 ≥ rally_gain_min
     after_highs = highs[peak_idx:]
