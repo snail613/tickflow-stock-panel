@@ -1128,7 +1128,7 @@ def _retry_daily_sync(
 
 
 def _finalize_daily_retry(repo: KlineRepository) -> None:
-    """日K重试成功后: 删除 stale enriched 分区, 触发缓存刷新以重算指标。"""
+    """日K重试成功后: 清理 stale enriched 分区 → 重算今日指标 → 刷新缓存。"""
     from datetime import date as _date
     today = _date.today()
     enriched_path = repo.store.data_dir / "kline_daily_enriched" / f"date={today}" / "part.parquet"
@@ -1139,7 +1139,23 @@ def _finalize_daily_retry(repo: KlineRepository) -> None:
         except Exception as e:  # noqa: BLE001
             logger.warning("移除 stale enriched 分区失败: %s", e)
 
-    # 刷新内存缓存（触发 enriched 即时计算）
+    # 重算今日 enriched（日K重试前只落盘了少量标的，enriched 可能只有几只或被跳过，
+    # 此时日K已补齐全部标的，需重新计算今日指标并写入 Parquet）
+    try:
+        logger.info("日K重试完成: 开始重算今日 enriched…")
+        written = run_pipeline(new_dates_only=True)
+        logger.info("日K重试完成: enriched 重算完成, %s 行", written)
+        # 刷新 DuckDB 视图，确保 enriched 视图包含新分区
+        d = repo.store.data_dir.as_posix()
+        repo.db.execute(
+            f"CREATE OR REPLACE VIEW kline_enriched AS "
+            f"SELECT * FROM read_parquet('{d}/kline_daily_enriched/**/*.parquet', "
+            f"union_by_name=true)"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("日K重试后重算 enriched 失败: %s", e)
+
+    # 刷新内存缓存（将刚写入的 enriched Parquet 加载到 Polars 内存缓存）
     try:
         repo.refresh_cache()
         logger.info("日K重试完成: 缓存已刷新")
