@@ -126,7 +126,7 @@ function ParamField({ def, value, allParams, onChange }: {
     const checked = value === true || value === 'true' || value === 'True'
     return (
       <div className={`flex items-center gap-2 ${disabledCls}`}>
-        <span className="text-[11px] text-secondary w-16 shrink-0 text-right">{def.label}</span>
+        <span className="text-[11px] text-secondary w-28 shrink-0 text-right whitespace-nowrap">{def.label}</span>
         <button
           type="button"
           onClick={() => onChange(!checked)}
@@ -145,12 +145,12 @@ function ParamField({ def, value, allParams, onChange }: {
   if (def.type === 'select' && def.options) {
     return (
       <div className={`flex items-center gap-2 ${disabledCls}`}>
-        <span className="text-[11px] text-secondary w-16 shrink-0 text-right">{def.label}</span>
+        <span className="text-[11px] text-secondary w-28 shrink-0 text-right whitespace-nowrap">{def.label}</span>
         <select
           value={value ?? def.default}
           onChange={e => onChange(e.target.value)}
           disabled={disabled}
-          className="w-24 px-1.5 py-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground focus:outline-none focus:border-accent/50 disabled:bg-subtle disabled:text-muted"
+          className="w-16 px-1.5 py-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground focus:outline-none focus:border-accent/50 disabled:bg-subtle disabled:text-muted"
         >
           {def.options.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
@@ -160,7 +160,7 @@ function ParamField({ def, value, allParams, onChange }: {
 
   return (
     <div className={`flex items-center gap-2 ${disabledCls}`}>
-      <span className="text-[11px] text-secondary w-16 shrink-0 text-right">{def.label}</span>
+      <span className="text-[11px] text-secondary w-28 shrink-0 text-right whitespace-nowrap">{def.label}</span>
       <input
         type="number"
         value={value ?? def.default}
@@ -169,10 +169,10 @@ function ParamField({ def, value, allParams, onChange }: {
         min={def.min}
         max={def.max}
         disabled={disabled}
-        className="w-20 px-1.5 py-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50 disabled:bg-subtle disabled:text-muted"
+        className="w-16 px-1.5 py-0.5 rounded bg-base border border-border text-[11px] font-mono text-foreground text-center focus:outline-none focus:border-accent/50 disabled:bg-subtle disabled:text-muted"
       />
       {def.min != null && def.max != null && (
-        <span className="text-[10px] text-muted">{def.min}~{def.max}</span>
+        <span className="text-[10px] text-muted shrink-0">{def.min}~{def.max}</span>
       )}
     </div>
   )

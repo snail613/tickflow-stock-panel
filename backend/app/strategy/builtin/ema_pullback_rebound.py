@@ -1,4 +1,4 @@
-"""指数移动均线回踩反弹 — EMA21/34/55/89 多头排列 + 回踩 EMA21/34/55 支撑 + 缩量确认"""
+"""指数移动均线回踩反弹 — EMA21/34/55/89 多头排列 + 回踩 EMA21/34/55/89 支撑 + 缩量确认"""
 import polars as pl
 
 LOOKBACK_DAYS = 150
@@ -11,7 +11,7 @@ ALERTS = []
 META = {
     "id": "ema_pullback_rebound",
     "name": "指数移动均线回踩反弹",
-    "description": "EMA21/34/55/89 多头排列 + 价格回踩均线支撑 + 缩量确认反弹",
+    "description": "EMA21/34/55/89 多头排列 + 价格回踩 EMA21/34/55/89 均线支撑 + 缩量确认反弹",
     "tags": ["均线", "EMA", "回踩", "反弹", "多头", "趋势"],
     "basic_filter": {
         "price_min": 3,
@@ -24,8 +24,10 @@ META = {
     "params": [
         {"id": "pullback_ema_near_pct", "label": "回踩EMA接近度(%)", "type": "float",
          "default": 3.0, "min": 1.0, "max": 10.0, "step": 0.5},
+        {"id": "enable_volume_shrink", "label": "启用缩量过滤", "type": "bool",
+         "default": False},
         {"id": "volume_shrink_ratio", "label": "缩量比例上限", "type": "float",
-         "default": 0.7, "min": 0.3, "max": 1.0, "step": 0.05},
+         "default": 0.7, "min": 0.3, "max": 1.0, "step": 0.05, "depends_on": "enable_volume_shrink"},
         {"id": "trend_days_min", "label": "多头排列最少天数", "type": "int",
          "default": 5, "min": 1, "max": 30, "step": 1},
         {"id": "require_positive_close", "label": "要求收阳线", "type": "bool",
@@ -33,6 +35,7 @@ META = {
     ],
     "params_defaults": {
         "pullback_ema_near_pct": 3.0,
+        "enable_volume_shrink": False,
         "volume_shrink_ratio": 0.7,
         "trend_days_min": 5,
         "require_positive_close": True,
@@ -73,6 +76,7 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
     df = df.sort(["symbol", "date"])
 
     pullback_near_pct = params.get("pullback_ema_near_pct", 3.0) / 100.0
+    enable_volume_shrink = params.get("enable_volume_shrink", False)
     volume_shrink_ratio = params.get("volume_shrink_ratio", 0.7)
     trend_days_min = params.get("trend_days_min", 5)
     require_positive = params.get("require_positive_close", True)
@@ -121,14 +125,16 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
         if aligned_days < trend_days_min:
             continue
 
-        # 条件4: 收盘价回踩到 EMA21 / EMA34 / EMA55 附近
+        # 条件4: 收盘价回踩到 EMA21 / EMA34 / EMA55 / EMA89 附近
         dist_to_21 = abs(c - e21) / e21
         dist_to_34 = abs(c - e34) / e34
         dist_to_55 = abs(c - e55) / e55
+        dist_to_89 = abs(c - e89) / e89
         near_ema21 = dist_to_21 <= pullback_near_pct
         near_ema34 = dist_to_34 <= pullback_near_pct
         near_ema55 = dist_to_55 <= pullback_near_pct
-        if not (near_ema21 or near_ema34 or near_ema55):
+        near_ema89 = dist_to_89 <= pullback_near_pct
+        if not (near_ema21 or near_ema34 or near_ema55 or near_ema89):
             continue
 
         # 选择最近的支撑均线
@@ -139,12 +145,14 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
             dists.append(("ema34", dist_to_34))
         if near_ema55:
             dists.append(("ema55", dist_to_55))
+        if near_ema89:
+            dists.append(("ema89", dist_to_89))
         support_ema, support_dist = min(dists, key=lambda x: x[1])
 
-        # 条件5: 缩量（当日成交量 < 5日均量 * 缩量比例上限）
+        # 条件5: 缩量（当日成交量 < 5日均量 * 缩量比例上限），可选
         vol_ma5 = sum(volumes[-6:-1]) / 5 if n >= 6 else v
         vol_shrink = v / vol_ma5 if vol_ma5 > 0 else 1.0
-        if vol_shrink > volume_shrink_ratio:
+        if enable_volume_shrink and vol_shrink > volume_shrink_ratio:
             continue
 
         # 条件6: 收阳线（可选）
@@ -170,10 +178,10 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
             "turnover_rate": latest.get("turnover_rate"),
             "change_amount": latest.get("change_amount"),
             "prev_close": latest.get("prev_close"),
-            # 评分: 回踩越精准分越高 + 缩量越明显分越高 + 排列越久分越高
+            # 评分: 回踩越精准分越高 + 缩量越明显分越高（仅启用时） + 排列越久分越高
             "score": round(
                 max(0, (pullback_near_pct - support_dist) / pullback_near_pct) * 3
-                + max(0, (volume_shrink_ratio - vol_shrink) / max(0.01, volume_shrink_ratio)) * 2
+                + (max(0, (volume_shrink_ratio - vol_shrink) / max(0.01, volume_shrink_ratio)) * 2 if enable_volume_shrink else 0)
                 + min(1.0, aligned_days / max(1, trend_days_min * 2)) * 3,
                 2,
             ),

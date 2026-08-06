@@ -526,16 +526,20 @@ function ScoringWeightRow({ name, weight, pct, editing, onChange }: {
   )
 }
 
-function StrategyParamInput({ param, value, onChange }: {
+function StrategyParamInput({ param, value, allValues, onChange }: {
   param: StrategyParamDef
   value: any
+  allValues?: Record<string, any>
   onChange: (value: any) => void
 }) {
+  const disabled = !!(param.depends_on && !allValues?.[param.depends_on])
+  const disabledCls = disabled ? 'opacity-40 pointer-events-none' : ''
+
   if (param.type === 'bool') {
     const checked = value === true || value === 'true' || value === 'True' || value === true
     return (
-      <label className="block">
-        <span className="mb-1 block text-[11px] text-secondary">{param.label}</span>
+      <label className={`block ${disabledCls}`}>
+        <span className="mb-1 block text-[11px] text-secondary whitespace-nowrap">{param.label}</span>
         <button
           type="button"
           onClick={() => onChange(!checked)}
@@ -553,23 +557,24 @@ function StrategyParamInput({ param, value, onChange }: {
   }
   if (param.type === 'select') {
     return (
-      <label className="block">
-        <span className="mb-1 block text-[11px] text-secondary">{param.label}</span>
-        <select value={value ?? param.default} onChange={e => onChange(e.target.value)} className={INPUT_CLS}>
+      <label className={`block ${disabledCls}`}>
+        <span className="mb-1 block text-[11px] text-secondary whitespace-nowrap">{param.label}</span>
+        <select value={value ?? param.default} onChange={e => onChange(e.target.value)} disabled={disabled} className={INPUT_CLS}>
           {(param.options ?? []).map(opt => <option key={opt} value={opt}>{opt}</option>)}
         </select>
       </label>
     )
   }
   return (
-    <label className="block">
-      <span className="mb-1 block text-[11px] text-secondary">{param.label}</span>
+    <label className={`block ${disabledCls}`}>
+      <span className="mb-1 block text-[11px] text-secondary whitespace-nowrap">{param.label}</span>
       <input
         type="number"
         value={value ?? ''}
         min={param.min}
         max={param.max}
         step={param.step ?? (param.type === 'int' ? 1 : 0.01)}
+        disabled={disabled}
         onChange={e => {
           const n = numOrNull(e.target.value)
           if (n == null) return onChange('')
@@ -2064,6 +2069,7 @@ export function StrategyBacktest() {
                           key={param.id}
                           param={param}
                           value={strategyParams[param.id]}
+                          allValues={strategyParams}
                           onChange={value => setStrategyParams(prev => ({ ...prev, [param.id]: value }))}
                         />
                       ))}

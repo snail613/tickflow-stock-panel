@@ -1125,12 +1125,32 @@ def _retry_daily_sync(
     else:
         logger.warning("日K重试耗尽 (%d 次), 最终仅 %d/%d 只标的",
                        max_retries, new_count, len(universe))
+        try:
+            from app.services.pipeline_jobs import job_store
+            retry_job_id, _ = job_store.create()
+            job_store.start(retry_job_id)
+            job_store.fail(retry_job_id,
+                           f"日K重试全部耗尽 ({max_retries} 次), 仅 {new_count}/{len(universe)} 只")
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _finalize_daily_retry(repo: KlineRepository) -> None:
-    """日K重试成功后: 清理 stale enriched 分区 → 重算今日指标 → 刷新缓存。"""
+    """日K重试成功后: 清理 stale enriched 分区 → 重算今日指标 → 刷新缓存。
+
+    同时通过 job_store 创建一条历史记录，确保数据页面的"历史记录"中可见重试结果。
+    """
     from datetime import date as _date
+    from app.services.pipeline_jobs import job_store
     today = _date.today()
+
+    # 创建 job_store 记录（主线管道已完成，_active_jobs 已清空，可正常 create）
+    retry_job_id, is_new = job_store.create()
+    if not is_new:
+        retry_job_id = f"daily_retry_{today}"
+    job_store.start(retry_job_id)
+    job_store.progress(retry_job_id, "enriched", 50, "日K重试成功，开始重算 enriched")
+
     enriched_path = repo.store.data_dir / "kline_daily_enriched" / f"date={today}" / "part.parquet"
     if enriched_path.exists():
         try:
@@ -1141,10 +1161,12 @@ def _finalize_daily_retry(repo: KlineRepository) -> None:
 
     # 重算今日 enriched（日K重试前只落盘了少量标的，enriched 可能只有几只或被跳过，
     # 此时日K已补齐全部标的，需重新计算今日指标并写入 Parquet）
+    total_written = 0
+    enriched_ok = True
     try:
         logger.info("日K重试完成: 开始重算今日 enriched…")
-        written = run_pipeline(new_dates_only=True)
-        logger.info("日K重试完成: enriched 重算完成, %s 行", written)
+        total_written = run_pipeline(new_dates_only=True)
+        logger.info("日K重试完成: enriched 重算完成, %s 行", total_written)
         # 刷新 DuckDB 视图，确保 enriched 视图包含新分区
         d = repo.store.data_dir.as_posix()
         repo.db.execute(
@@ -1154,6 +1176,7 @@ def _finalize_daily_retry(repo: KlineRepository) -> None:
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("日K重试后重算 enriched 失败: %s", e)
+        enriched_ok = False
 
     # 刷新内存缓存（将刚写入的 enriched Parquet 加载到 Polars 内存缓存）
     try:
@@ -1161,6 +1184,15 @@ def _finalize_daily_retry(repo: KlineRepository) -> None:
         logger.info("日K重试完成: 缓存已刷新")
     except Exception as e:  # noqa: BLE001
         logger.warning("日K重试后刷新缓存失败: %s", e)
+
+    # 记录结果
+    if enriched_ok:
+        job_store.succeed(retry_job_id, {
+            "summary": f"日K数据重试后就绪, enriched {total_written} 行",
+            "date": str(today),
+        })
+    else:
+        job_store.fail(retry_job_id, "日K重试成功但 enriched 重算失败")
 
 
 def _maybe_schedule_daily_retry(

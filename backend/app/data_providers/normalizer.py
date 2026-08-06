@@ -95,7 +95,23 @@ def _safe_from_pandas(df):
         for col_name, converted in conversions.items():
             df[col_name] = converted
 
-    return pl.from_pandas(df)
+    # Final safety net: if pl.from_pandas still requires pyarrow (e.g. for columns
+    # with types not covered above), fall back to numpy-backed conversion.
+    try:
+        return pl.from_pandas(df)
+    except ImportError:
+        # pyarrow not available — rebuild each column via numpy
+        col_data = {}
+        for c in df.columns:
+            s = df[c]
+            try:
+                col_data[c] = s.to_numpy(dtype="float64", na_value=np.nan)
+            except (ValueError, TypeError):
+                try:
+                    col_data[c] = s.to_numpy(dtype="int64", na_value=0)
+                except (ValueError, TypeError):
+                    col_data[c] = s.astype("object").to_numpy()
+        return pl.DataFrame(col_data)
 
 
 def to_polars(data) -> pl.DataFrame:
