@@ -20,6 +20,12 @@ META = {
     "params": [
         {"id": "analyze_lookback_days", "label": "分析数据范围(天)", "type": "int",
          "default": 250, "min": 100, "max": 500, "step": 10},
+        {"id": "peak_window_before", "label": "峰值识别前窗口(天)", "type": "int",
+         "default": 10, "min": 3, "max": 40, "step": 1,
+         "description": "某日要成为局部峰值，其最高价需为其前N个交易日窗口内的最高点"},
+        {"id": "peak_window_after", "label": "峰值识别后窗口(天)", "type": "int",
+         "default": 10, "min": 3, "max": 40, "step": 1,
+         "description": "某日要成为局部峰值，其最高价需为其后N个交易日窗口内的最高点（同时作为突破确认期，峰值后N天内无更高价）"},
         {"id": "rally_gain_min", "label": "主升浪最低涨幅(%)", "type": "float",
          "default": 50.0, "min": 20.0, "max": 200.0, "step": 5.0},
         {"id": "pullback_range_min", "label": "距前顶下限(%)", "type": "float",
@@ -34,6 +40,8 @@ META = {
     ],
     "params_defaults": {
         "analyze_lookback_days": 250,
+        "peak_window_before": 10,
+        "peak_window_after": 10,
         "rally_gain_min": 50.0,
         "pullback_range_min": -3.0,
         "pullback_range_max": 5.0,
@@ -57,19 +65,20 @@ META = {
 
 # ───────────────────────── 形态识别核心 ─────────────────────────
 
-def _detect_peaks(prices: list[float], window: int = 20) -> list[int]:
+def _detect_peaks(prices: list[float], left_window: int = 10, right_window: int = 10) -> list[int]:
     """滑动窗口局部最高点。
 
-    左侧要求 window 根确认（确保有足够历史来定位局部顶）；
-    右侧不做硬性要求，有几天就用几天，避免丢弃数据末尾的近期峰值。
+    某日要成为局部峰值，其最高价需同时为：
+    - 左侧 left_window 个交易日内最高点（确保有足够历史来定位局部顶）
+    - 右侧 right_window 个交易日内最高点（即峰值后 right_window 天内无更高价，
+      作为顶部确认期；右侧不做硬性要求，有几天就用几天，避免丢弃数据末尾的近期峰值）
     """
     n = len(prices)
     peaks: list[int] = []
-    for i in range(window, n):
-        # 左侧保留 window 根；右侧最多 window 根，以实际可用数据为准
+    for i in range(left_window, n):
         peak = True
-        left = max(0, i - window)
-        right = min(n, i + window + 1)
+        left = i - left_window
+        right = min(n, i + right_window + 1)
         for j in range(left, right):
             if j == i:
                 continue
@@ -101,14 +110,12 @@ def _score_stock(sub: pl.DataFrame, peak_idx: int, params: dict) -> dict | None:
     if max(highs[: peak_idx + 1]) > peak_price:
         return None
 
-    # E: 峰值不位于数据末尾（必须在 B 之前，避免 B 的切片为空）
+    # E: 峰值不位于数据末尾（确保主升浪与回踩切片非空）
     if peak_idx >= n - 1:
         return None
 
-    # B: 峰值后 10 天内无更高点
-    end_b = min(n, peak_idx + 11)
-    if max(highs[peak_idx + 1 : end_b]) > peak_price:
-        return None
+    # B: 峰值后 right_window 天内无更高点 —— 已由 _detect_peaks 的右侧窗口保证，
+    #    无需在此重复判断（见 _detect_peaks 参数 peak_window_after）
 
     # C/D: 涨停回溯（可选）
     use_lookback = params.get("use_lookback", False)
@@ -221,7 +228,9 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
             continue
 
         # 识别局部峰值（需 ≥ 2 个峰值）
-        peaks = _detect_peaks(highs, window=20)
+        peak_window_before = params.get("peak_window_before", 10)
+        peak_window_after = params.get("peak_window_after", 10)
+        peaks = _detect_peaks(highs, left_window=peak_window_before, right_window=peak_window_after)
         if len(peaks) < 2:
             continue
 

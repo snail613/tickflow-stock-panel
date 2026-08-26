@@ -361,12 +361,12 @@ export interface AiReviewReport {
 export interface StrategyParamDef {
   id: string
   label: string
-  type: 'float' | 'int' | 'select' | 'bool'
-  default: number | string | boolean
+  type: 'float' | 'int' | 'select' | 'bool' | 'multiselect'
+  default: number | string | boolean | string[]
   min?: number
   max?: number
   step?: number
-  options?: string[]
+  options?: string[] | { value: string; label: string }[]
   /** 依赖的父参数 id；当父参数为 false/falsy 时该参数禁用 */
   depends_on?: string
 }

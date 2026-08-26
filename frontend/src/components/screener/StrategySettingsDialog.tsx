@@ -157,6 +157,44 @@ function ParamField({ def, value, allParams, onChange }: {
       </div>
     )
   }
+  if (def.type === 'multiselect' && Array.isArray(def.options)) {
+    const selected: string[] = Array.isArray(value) ? value : (def.default as string[]) ?? []
+    const options: { value: string; label: string }[] = def.options.map(o =>
+      typeof o === 'string' ? { value: o, label: o } : o
+    )
+    const toggle = (v: string) => {
+      if (selected.includes(v)) {
+        onChange(selected.filter(x => x !== v))
+      } else {
+        onChange([...selected, v])
+      }
+    }
+    return (
+      <div className={`flex items-center gap-2 ${disabledCls}`}>
+        <span className="text-[11px] text-secondary w-28 shrink-0 text-right whitespace-nowrap">{def.label}</span>
+        <div className="flex items-center gap-1 flex-wrap">
+          {options.map(opt => {
+            const active = selected.includes(opt.value)
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={disabled}
+                onClick={() => toggle(opt.value)}
+                className={`px-1.5 py-0.5 rounded text-[10px] border transition-colors cursor-pointer ${
+                  active
+                    ? 'bg-accent/15 border-accent/30 text-accent'
+                    : 'bg-base border-border text-muted hover:border-accent/30'
+                } disabled:opacity-40 disabled:pointer-events-none`}
+              >
+                {opt.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className={`flex items-center gap-2 ${disabledCls}`}>

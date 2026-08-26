@@ -565,6 +565,44 @@ function StrategyParamInput({ param, value, allValues, onChange }: {
       </label>
     )
   }
+  if (param.type === 'multiselect' && Array.isArray(param.options)) {
+    const selected: string[] = Array.isArray(value) ? value : (param.default as string[]) ?? []
+    const options: { value: string; label: string }[] = param.options.map(o =>
+      typeof o === 'string' ? { value: o, label: o } : o
+    )
+    const toggle = (v: string) => {
+      if (selected.includes(v)) {
+        onChange(selected.filter(x => x !== v))
+      } else {
+        onChange([...selected, v])
+      }
+    }
+    return (
+      <div className={disabledCls}>
+        <span className="mb-1 block text-[11px] text-secondary whitespace-nowrap">{param.label}</span>
+        <div className="flex items-center gap-1 flex-wrap">
+          {options.map(opt => {
+            const active = selected.includes(opt.value)
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={disabled}
+                onClick={() => toggle(opt.value)}
+                className={`px-2 py-0.5 rounded text-[11px] border transition-colors cursor-pointer ${
+                  active
+                    ? 'bg-accent/15 border-accent/30 text-accent font-medium'
+                    : 'bg-base border-border text-muted hover:border-accent/30'
+                } disabled:opacity-40 disabled:pointer-events-none`}
+              >
+                {opt.label}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+    )
+  }
   return (
     <label className={`block ${disabledCls}`}>
       <span className="mb-1 block text-[11px] text-secondary whitespace-nowrap">{param.label}</span>

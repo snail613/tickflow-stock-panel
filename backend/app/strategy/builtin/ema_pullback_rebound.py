@@ -24,6 +24,14 @@ META = {
     "params": [
         {"id": "pullback_ema_near_pct", "label": "回踩EMA接近度(%)", "type": "float",
          "default": 3.0, "min": 1.0, "max": 10.0, "step": 0.5},
+        {"id": "support_ema_periods", "label": "回踩支撑均线", "type": "multiselect",
+         "default": ["21", "34", "55", "89"],
+         "options": [
+             {"value": "21", "label": "EMA21"},
+             {"value": "34", "label": "EMA34"},
+             {"value": "55", "label": "EMA55"},
+             {"value": "89", "label": "EMA89"},
+         ]},
         {"id": "enable_volume_shrink", "label": "启用缩量过滤", "type": "bool",
          "default": False},
         {"id": "volume_shrink_ratio", "label": "缩量比例上限", "type": "float",
@@ -35,6 +43,7 @@ META = {
     ],
     "params_defaults": {
         "pullback_ema_near_pct": 3.0,
+        "support_ema_periods": ["21", "34", "55", "89"],
         "enable_volume_shrink": False,
         "volume_shrink_ratio": 0.7,
         "trend_days_min": 5,
@@ -76,6 +85,9 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
     df = df.sort(["symbol", "date"])
 
     pullback_near_pct = params.get("pullback_ema_near_pct", 3.0) / 100.0
+    support_ema_periods = params.get("support_ema_periods", ["21", "34", "55", "89"])
+    # 标准化为 int 列表
+    selected_periods = sorted(set(int(p) for p in support_ema_periods))
     enable_volume_shrink = params.get("enable_volume_shrink", False)
     volume_shrink_ratio = params.get("volume_shrink_ratio", 0.7)
     trend_days_min = params.get("trend_days_min", 5)
@@ -125,28 +137,26 @@ def filter_history(df: pl.DataFrame, params: dict) -> pl.DataFrame:
         if aligned_days < trend_days_min:
             continue
 
-        # 条件4: 收盘价回踩到 EMA21 / EMA34 / EMA55 / EMA89 附近
-        dist_to_21 = abs(c - e21) / e21
-        dist_to_34 = abs(c - e34) / e34
-        dist_to_55 = abs(c - e55) / e55
-        dist_to_89 = abs(c - e89) / e89
-        near_ema21 = dist_to_21 <= pullback_near_pct
-        near_ema34 = dist_to_34 <= pullback_near_pct
-        near_ema55 = dist_to_55 <= pullback_near_pct
-        near_ema89 = dist_to_89 <= pullback_near_pct
-        if not (near_ema21 or near_ema34 or near_ema55 or near_ema89):
+        # 条件4: 收盘价回踩到选定的支撑均线附近
+        ema_map = {
+            21: (e21, "ema21"),
+            34: (e34, "ema34"),
+            55: (e55, "ema55"),
+            89: (e89, "ema89"),
+        }
+        dists = []
+        for period in selected_periods:
+            info = ema_map.get(period)
+            if info is None:
+                continue
+            ema_val, ema_label = info
+            dist = abs(c - ema_val) / ema_val
+            if dist <= pullback_near_pct:
+                dists.append((ema_label, dist))
+        if not dists:
             continue
 
         # 选择最近的支撑均线
-        dists = []
-        if near_ema21:
-            dists.append(("ema21", dist_to_21))
-        if near_ema34:
-            dists.append(("ema34", dist_to_34))
-        if near_ema55:
-            dists.append(("ema55", dist_to_55))
-        if near_ema89:
-            dists.append(("ema89", dist_to_89))
         support_ema, support_dist = min(dists, key=lambda x: x[1])
 
         # 条件5: 缩量（当日成交量 < 5日均量 * 缩量比例上限），可选
