@@ -51,6 +51,21 @@ def _safe(result_dict: dict) -> dict:
     return result_dict
 
 
+def _notify_strategy_results(request: Request) -> None:
+    """run_preset 更新策略缓存后推送 SSE, 触发前端 screener-cached 失效重拉。
+
+    否则前端 handleRun 命中 effectiveResults (React Query 内存旧缓存) 时不会重新
+    拉取文件缓存, 用户看到的一直是过期结果。
+    """
+    qs = getattr(request.app.state, "quote_service", None)
+    if qs is None:
+        return
+    try:
+        qs.notify_strategy_results_updated()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 _EXT_IDENT_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 
@@ -293,6 +308,7 @@ def run_preset(req: PresetRequest, request: Request):
             raise HTTPException(status_code=404, detail=str(e)) from e
         safe_data = _safe(asdict(result))
         _update_cache_strategy(data_dir, str(as_of), req.strategy_id, safe_data)
+        _notify_strategy_results(request)
         return _result_with_ext(safe_data, ext_values)
 
     # 自定义/AI 策略 — 通过 StrategyEngine 执行
@@ -314,6 +330,7 @@ def run_preset(req: PresetRequest, request: Request):
     # 单跑后更新缓存中该策略的结果（保持缓存最新）
     safe_data = _safe(data)
     _update_cache_strategy(data_dir, str(as_of), req.strategy_id, safe_data)
+    _notify_strategy_results(request)
 
     return _result_with_ext(safe_data, ext_values)
 

@@ -28,6 +28,10 @@ from app.parquet import scan_enriched_parquet
 
 logger = logging.getLogger(__name__)
 
+# filter_history 策略的最大历史窗口需求 (交易日): dragon_rebound=250, ema_pullback_rebound=150
+# 构建 enriched 历史缓存时须覆盖该窗口 + warmup, 否则缓存永远 miss 走慢路径 (~26s)。
+FILTER_HISTORY_MAX_LOOKBACK = 250
+
 
 def enriched_dirname(asset_type: str) -> str:
     """asset_type → enriched parquet 目录名。ETF 走独立目录, 其余(stock)用日K enriched。"""
@@ -495,12 +499,13 @@ class KlineRepository:
                 logger.info("enriched refresh skipped: latest parquet empty (%.2fs)", time.perf_counter() - started)
                 return
 
-            # Step 2: 读近 300 天 14 列数据 → compute → filter(latest) → 缓存
-            # 300 日历天 ≈ 210 交易日, 覆盖 filter_history 最大 lookback(90) + warmup(60)
+            # Step 2: 读足够历史 14 列数据 → compute → filter(latest) → 缓存
+            # 日历日 = (最大 lookback + warmup) × 2, 确保缓存覆盖 filter_history 全窗口
+            # (dragon_rebound 需 250 交易日); 当前数据源约 273 个交易日, 该范围实际即全量历史。
             try:
                 from datetime import timedelta
                 from app.indicators.pipeline import compute_indicators, compute_signals, compute_limit_signals
-                start_full = latest - timedelta(days=300)
+                start_full = latest - timedelta(days=(FILTER_HISTORY_MAX_LOOKBACK + 60) * 2)
                 read_cols = [c for c in ["symbol", "date", "open", "high", "low", "close",
                                          "volume", "amount", "raw_close", "raw_high", "raw_low"]
                              if c in df_latest.columns]
@@ -948,8 +953,16 @@ class KlineRepository:
         # 验证缓存覆盖完整范围 (含 warmup)。lookback_days 是交易日语义, 用 ×2 日历日
         # 放宽确保覆盖 (节假日/周末), 与 warmup 60 一起留足余量。
         warmup_start = target_date - timedelta(days=(lookback_days + 60) * 2)
-        if cache_min > warmup_start or cache_max < target_date:
+        if cache_max < target_date:
             return None
+        if cache_min > warmup_start:
+            # 缓存起点早于 warmup 校验点时 (数据源本身较短), 按可用交易日数兜底:
+            # filter_history 策略基于 raw OHLC 自行计算 (dragon_rebound) 或从窗口首行
+            # 递归计算 EMA (ema_pullback_rebound), 不依赖窗口外 warmup 历史;
+            # 指标列已按全量历史预计算。只要交易日数 >= lookback_days 即可直接返回。
+            trading_dates = cache["date"].unique().sort()
+            if len(trading_dates) < lookback_days:
+                return None
         # 按交易日计数裁剪: 从数据里实际存在的交易日序列取最后 lookback_days 个交易日。
         # 不能用 timedelta(days=N) (自然日), 否则周末/节假日会让窗口只有 ~N×5/7 个交易日,
         # 导致 filter_history 策略的滚动窗口/行号差(_gap)漏算, 与回测结果不一致。

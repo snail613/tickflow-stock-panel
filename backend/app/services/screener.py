@@ -395,8 +395,11 @@ class ScreenerService:
                        target_date, lookback_days)
         from app.indicators.pipeline import compute_indicators, compute_signals, compute_limit_signals
 
+        # lookback_days 是交易日语义, ×2 换算为日历日; 另加 warmup 保证指标计算有足够历史。
+        # 注意: 不可用 min(..., 180) 截断 —— filter_history 策略可能要求 250 个交易日,
+        # 截断到 180 日历日会导致历史窗口不足, 峰值识别/形态判断失真。
         warmup = 60
-        start = target_date - timedelta(days=min((lookback_days + warmup) * 2, 180))
+        start = target_date - timedelta(days=(lookback_days + warmup) * 2)
 
         enriched_dir = self.repo.store.data_dir / self._enriched_dirname
         read_cols = ["symbol", "date", "open", "high", "low", "close", "volume",
