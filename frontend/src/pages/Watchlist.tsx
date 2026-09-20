@@ -135,8 +135,11 @@ function renderExtValue(
     // 卡片视图：返回 inline 片段
     return tagEls
   }
-  // 表格视图：用 <div> 包裹
-  return <div className={isVertical ? 'flex flex-col items-start gap-0.5' : 'flex flex-wrap gap-0.5'}>{tagEls}</div>
+  // 表格视图：用 <div> 包裹（默认单行不折行；仅设置了「最大列宽」时才折行）
+  const allowWrap = !!cfg?.maxWidth
+  return <div className={isVertical
+    ? 'flex flex-col items-start gap-0.5'
+    : allowWrap ? 'flex flex-wrap gap-0.5' : 'flex flex-nowrap gap-0.5'}>{tagEls}</div>
 }
 
 /** 渲染扩展数据列的 <td> */
@@ -157,14 +160,15 @@ function renderExtCell(
     style.maxWidth = col.extDisplay.maxWidth
   }
 
-  // 根据值类型决定 td class
+  // 根据值类型决定 td class（仅当设置了「最大列宽」时才允许折行）
+  const allowWrap = !!col.extDisplay?.maxWidth
   const tdClass = val == null || Number.isNaN(val)
     ? 'px-2 py-1.5 text-right num tabular-nums text-muted'
     : typeof val === 'number'
       ? 'px-2 py-1.5 text-right num tabular-nums'
       : typeof val === 'boolean'
-        ? 'px-2 py-1.5 text-right'
-        : 'px-2 py-1.5'
+        ? `px-2 py-1.5 text-right${allowWrap ? ' whitespace-normal' : ''}`
+        : `px-2 py-1.5${allowWrap ? ' whitespace-normal' : ''}`
 
   return (
     <td className={tdClass} style={style}>
@@ -1182,7 +1186,7 @@ export function Watchlist() {
                   return (
                     <td className="px-2 py-1.5">
                       {signals.length > 0 && (
-                        <div className="flex flex-wrap gap-0.5">
+                        <div className="flex flex-nowrap gap-0.5">
                           {signals.slice(0, 3).map((s) => (
                             <span key={s.label} className={`inline-block px-1.5 py-px rounded text-[10px] font-medium leading-tight ${signalCls(s.type)}`}>
                               {s.label}

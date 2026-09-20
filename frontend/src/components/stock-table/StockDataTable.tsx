@@ -73,7 +73,13 @@ export function StockDataTable({
 
   return (
     <div className={className}>
-      <table className="w-full text-sm" style={{ minWidth: computedMinWidth }}>
+      {/*
+        whitespace-nowrap: 单元格内容一律单行显示，避免因列宽被压缩而出现
+        「一行数据断成两行」（日期在 "-" 处断行、标签 flex-wrap 折行）。
+        宽度不够时由外层 overflow-x-auto 横向滚动，表格会自动扩展到内容宽度。
+        需要按「最大列宽」折行的 ext 列由调用方在单元格上单独放开（whitespace-normal）。
+      */}
+      <table className="w-full text-sm whitespace-nowrap" style={{ minWidth: computedMinWidth }}>
         <thead className={theadClass}>
           <tr className="text-left text-secondary">
             {visibleColumns.map(col => {

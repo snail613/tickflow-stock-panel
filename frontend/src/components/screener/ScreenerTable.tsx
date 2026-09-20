@@ -68,9 +68,13 @@ function renderTagList(
     : sliced
   const hiddenCount = tags.length - visibleTags.length
   const isVertical = cfg?.tagLayout === 'vertical' && !expanded
+  // 标签默认单行排列（不折行）；仅当用户显式设置了「最大列宽」时才允许折行
+  const allowWrap = !!cfg?.maxWidth
 
   return (
-    <div className={isVertical ? 'flex flex-col items-start gap-0.5' : 'flex flex-wrap gap-0.5'}>
+    <div className={isVertical
+      ? 'flex flex-col items-start gap-0.5'
+      : allowWrap ? 'flex flex-wrap gap-0.5' : 'flex flex-nowrap gap-0.5'}>
       {visibleTags.map((tag, i) => (
         <span key={i} className={tagClassName}>{tag}</span>
       ))}
@@ -164,11 +168,13 @@ export function ScreenerTable({
       const val = r[`${configId}__${fieldName}`]
       const cellKey = `${r.symbol}::${col.id}`
       const expanded = expandedCells.has(cellKey)
+      // 仅当用户显式设置了「最大列宽」时才允许折行（否则跟随表格的单行策略）
+      const allowWrap = !!col.extDisplay?.maxWidth
       const tdClass = val == null || Number.isNaN(val)
         ? 'px-3 py-2 text-center text-muted'
         : typeof val === 'number'
           ? 'px-3 py-2 text-right num tabular-nums'
-          : 'px-3 py-2 text-center'
+          : `px-3 py-2 text-center${allowWrap ? ' whitespace-normal' : ''}`
       const style: CSSProperties = {}
       if (col.extDisplay?.maxWidth) style.maxWidth = col.extDisplay.maxWidth
       return (
@@ -264,7 +270,7 @@ export function ScreenerTable({
         return (
           <td key={col.id} className="px-3 py-2">
             {signals.length > 0 ? (
-              <div className="flex flex-wrap gap-0.5">
+              <div className="flex flex-nowrap gap-0.5">
                 {signals.slice(0, 3).map((s) => (
                   <span key={s.label} className={`inline-block px-1.5 py-px rounded text-[10px] font-medium leading-tight ${signalCls(s.type)}`}>
                     {s.label}
