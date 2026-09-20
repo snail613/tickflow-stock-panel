@@ -390,7 +390,7 @@ export interface StrategyDetail {
   trailing_take_profit_activate: number | null
   trailing_take_profit_drawdown: number | null
   max_hold_days: number | null
-  display_limit?: number
+  display_limit?: number | null
   alerts: { field: string; op?: string; value?: number; message: string }[]
   order_by: string
   descending: boolean

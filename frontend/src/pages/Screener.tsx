@@ -355,10 +355,11 @@ export function Screener() {
     rows = sort
       ? sortRows(rows, columns)
       : [...rows].sort((a, b) => (b.score ?? -Infinity) - (a.score ?? -Infinity))
+    // limit: 0 = 不限制（与后端 display_limit 语义对齐）
     const limit = !showAll && activeStrategy
       ? strategyLimits[activeStrategy] ?? null
       : null
-    const mainRows = limit != null ? rows.slice(0, limit) : rows
+    const mainRows = limit != null && limit > 0 ? rows.slice(0, limit) : rows
 
     // 追加当前策略的失效行 (灰色)
     if (!showAll && activeStrategy) {
@@ -369,6 +370,10 @@ export function Screener() {
     }
     return mainRows
   }, [showAll, allRows, filteredRows, filter, activeStrategy, strategyLimits, expiredRowsMap, sort, sortRows, columns])
+
+  // 有效命中行（剔除末尾追加的灰色失效行）—— 标题"命中 N 只"与卡片 hitCounts 保持同口径
+  const liveRows = useMemo(() => displayRows.filter(r => !r._expired), [displayRows])
+  const expiredShownCount = displayRows.length - liveRows.length
 
   // 日k列是否启用 → 决定是否加载批量 kline 数据
   const candleColumn = useMemo(() =>
@@ -793,8 +798,11 @@ export function Screener() {
                     <span className="text-secondary">{strategyIdToName[activeStrategy] ?? ''}</span>
                   )}
                   <TrendingUp className="h-4 w-4 text-accent" />
-                  {showAll ? '全部' : ''}命中 <span className="text-accent num">{displayRows.length}</span> 只
-                  {filterActive(filter) && displayRows.length !== (showAll ? allRows.length : result!.total) && (
+                  {showAll ? '全部' : ''}命中 <span className="text-accent num">{liveRows.length}</span> 只
+                  {expiredShownCount > 0 && (
+                    <span className="text-muted text-[11px]">· {expiredShownCount} 只今日曾命中已失效</span>
+                  )}
+                  {filterActive(filter) && liveRows.length !== (showAll ? allRows.length : result!.total) && (
                     <span className="text-muted text-xs">/ {showAll ? allRows.length : result!.total}</span>
                   )}
                   <span className="text-[11px] text-muted font-normal">

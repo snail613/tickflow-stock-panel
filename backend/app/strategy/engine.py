@@ -337,8 +337,7 @@ class StrategyEngine:
             scoring = {**scoring, **scoring_overrides}
         df = self._apply_scoring(df, scoring)
 
-        # 排序 + 限制
-        limit = s.meta.get("limit", 100)
+        # 排序
         order_desc = s.meta.get("descending", True)
         if "score" in df.columns:
             df = df.sort("score", descending=order_desc)
@@ -346,7 +345,23 @@ class StrategyEngine:
             ob = s.meta["order_by"]
             if ob in df.columns:
                 df = df.sort(ob, descending=order_desc)
-        df = df.head(limit)
+
+        # 限制 — 用户配置的 display_limit 覆盖策略 META["limit"]
+        # (语义与 ScreenerService.run_preset 对齐):
+        #   未配置 / 显式 null -> 策略默认 limit (兜底 100)
+        #   0                  -> 不限制
+        #   N > 0              -> 前 N 条
+        limit: int | None = s.meta.get("limit", 100)
+        if "display_limit" in overrides:
+            raw_dl = overrides.get("display_limit")
+            try:
+                dl = int(raw_dl) if raw_dl is not None else None
+            except (TypeError, ValueError):
+                dl = None
+            if dl is not None:
+                limit = None if dl == 0 else dl
+        if limit is not None and limit > 0:
+            df = df.head(limit)
 
         # 输出
         rows = _sanitize(df.to_dicts())

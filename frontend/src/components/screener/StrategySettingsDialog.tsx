@@ -431,9 +431,10 @@ export function StrategySettingsDialog({ strategyId, onClose, onSaved, onAiModif
                   </div>
                   <div className="flex items-center gap-1.5 pb-0.5 shrink-0">
                     <span className="text-[10px] text-muted/50">显示上限</span>
-                    <input type="number" value={displayLimit ?? ''} onChange={e => setDisplayLimit(e.target.value ? Number(e.target.value) : null)} step={1} min={10} max={200} placeholder="不限"
+                    <input type="number" value={displayLimit ?? ''} onChange={e => setDisplayLimit(e.target.value ? Number(e.target.value) : null)} step={1} min={0} max={2000} placeholder="默认"
+                      title="0 = 不限制；留空 = 用策略默认上限（多为 100 只）"
                       className="w-14 h-8 px-1.5 rounded-lg bg-base border border-border/40 text-xs font-mono text-foreground text-center focus:outline-none focus:border-accent/50" />
-                    <span className="text-[10px] text-muted/50">只</span>
+                    <span className="text-[10px] text-muted/50">只 · 0=不限</span>
                   </div>
                 </div>
 
